@@ -1,0 +1,12 @@
+# Local secrets and Python build artifacts
+.env
+.streamlit/secrets.toml
+__pycache__/
+*.py[cod]
+
+# Temporary PDF-review images
+__pdf_review/
+__pdf_review_test3/
+
+# Local PDF samples used only during development
+test*.pdf

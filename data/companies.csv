@@ -1,0 +1,27 @@
+company_id,company_name,segment,city,account_manager
+1,Asterion s.r.o.,SMB,Ostrava,Petra Svobodová
+2,Boreal s.r.o.,Mid-market,Ostrava,Petra Svobodová
+3,CleverFox s.r.o.,SMB,Ostrava,Tomáš Král
+4,DeltaWorks s.r.o.,Mid-market,Praha,Jan Dvořák
+5,Evident s.r.o.,Enterprise,Plzeň,Anna Nováková
+6,Futura s.r.o.,SMB,Praha,Tomáš Král
+7,GreenPath s.r.o.,SMB,Liberec,Petra Svobodová
+8,Helios s.r.o.,SMB,Liberec,Petra Svobodová
+9,Inventa s.r.o.,Enterprise,Olomouc,Anna Nováková
+10,Juno s.r.o.,Mid-market,Liberec,Jan Dvořák
+11,Kinetiq s.r.o.,Mid-market,Ostrava,Tomáš Král
+12,Lumina s.r.o.,SMB,Olomouc,Tomáš Král
+13,Moneta s.r.o.,Mid-market,Ostrava,Jan Dvořák
+14,Nordicore s.r.o.,SMB,Brno,Tomáš Král
+15,Orbis s.r.o.,Mid-market,Olomouc,Tomáš Král
+16,Penta s.r.o.,Enterprise,Ostrava,Jan Dvořák
+17,Quantio s.r.o.,Mid-market,Praha,Tomáš Král
+18,Riverton s.r.o.,Enterprise,Ostrava,Jan Dvořák
+19,Solventa s.r.o.,SMB,Liberec,Anna Nováková
+20,TeraNova s.r.o.,Mid-market,Brno,Petra Svobodová
+21,Umbra s.r.o.,SMB,Ostrava,Petra Svobodová
+22,Vektor s.r.o.,Mid-market,Praha,Anna Nováková
+23,Westfield s.r.o.,SMB,Liberec,Tomáš Král
+24,Xenon s.r.o.,SMB,Ostrava,Anna Nováková
+25,Ypsilon s.r.o.,SMB,Brno,Tomáš Král
+26,Zenith s.r.o.,Enterprise,Brno,Anna Nováková

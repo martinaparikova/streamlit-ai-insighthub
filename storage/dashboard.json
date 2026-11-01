@@ -1,0 +1,14 @@
+[
+  {
+    "title": "Lowest-revenue products",
+    "kind": "bar",
+    "sql": "SELECT i.product, SUM(i.net_amount_czk) AS revenue_czk,\n       COUNT(*) AS invoice_count\nFROM invoices i\nWHERE 1 = 1\nGROUP BY i.product\nORDER BY revenue_czk ASC\nLIMIT 3",
+    "x": "product",
+    "y": "revenue_czk",
+    "color": "#2563EB",
+    "highlight": null,
+    "font": "Arial",
+    "title_size": 20,
+    "position": "bottom"
+  }
+]
