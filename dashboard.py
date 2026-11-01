@@ -9,7 +9,8 @@ SEGMENTS = ("Enterprise", "Mid-market", "SMB")
 CITIES = ("Praha", "Brno", "Ostrava", "Plzeň", "Liberec", "Olomouc")
 CHART_KINDS = ("bar", "line", "area", "pie", "table", "metric")
 PERIODS = ("monthly", "weekly")
-COLORS = ("#2563EB", "#EC4899", "#0F766E", "#7C3AED", "#EA580C")
+COLORS = ("#0B3B2E", "#C2185B", "#2F6B5A", "#7C3AED", "#EA580C")
+LEGACY_COLOR_MAP = {"#2563EB": "#2F6B5A", "#EC4899": "#C2185B", "#0F766E": "#0B3B2E"}
 
 
 def default_filters():
@@ -22,6 +23,7 @@ def default_page(name="Přehled", cards=None):
 
 def normalize_card(card):
     normalized = dict(card)
+    normalized["color"] = LEGACY_COLOR_MAP.get(normalized.get("color"), normalized.get("color"))
     normalized.setdefault("id", uuid.uuid4().hex[:8])
     normalized.setdefault("kind", "bar")
     normalized.setdefault("color", COLORS[0])
@@ -182,7 +184,7 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
     if any(term in prompt for term in ("sestup", "descending", "nejvyš", "nejvyss")):
         selected["sort_order"] = "descending"
         return document, f"Karta „{selected['title']}“ je seřazena sestupně."
-    color_terms = {"růž": "#EC4899", "ruz": "#EC4899", "pink": "#EC4899", "modr": "#2563EB", "blue": "#2563EB", "zelen": "#0F766E", "green": "#0F766E", "fial": "#7C3AED", "purple": "#7C3AED"}
+    color_terms = {"růž": "#C2185B", "ruz": "#C2185B", "pink": "#C2185B", "modr": "#2F6B5A", "blue": "#2F6B5A", "zelen": "#0B3B2E", "green": "#0B3B2E", "fial": "#7C3AED", "purple": "#7C3AED"}
     for term, color in color_terms.items():
         if term in prompt:
             selected["color"] = color

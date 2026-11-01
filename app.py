@@ -35,7 +35,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 ROOT = Path(__file__).parent
 DATA_DIR = ROOT / "data"
 STORE = ROOT / "storage" / "dashboard.json"
-NAVY, PAPER, PINK, BLUE, TEAL, SLATE = "#14213D", "#F7F5F2", "#EC4899", "#2563EB", "#0F766E", "#334155"
+FOREST, PAPER, PINK, BLUE, TEAL, SLATE = "#0B3B2E", "#F7F8F5", "#C2185B", "#2F6B5A", "#0B3B2E", "#385248"
 
 st.set_page_config(page_title="Insight Hub", page_icon="◒", layout="wide", initial_sidebar_state="expanded")
 
@@ -200,7 +200,7 @@ def parse_visual_prompt(text):
 
     spec.update(
         {
-            "color": PINK if "růž" in prompt or "ruz" in prompt else BLUE,
+            "color": PINK if "růž" in prompt or "ruz" in prompt else TEAL,
             "highlight": BLUE if (any(term in prompt for term in ["nejvyš", "maximum", " max"]) and ("modr" in prompt or "blue" in prompt)) else None,
             "font": "Roboto" if "roboto" in prompt else "Arial",
             "title_size": 25 if any(term in prompt for term in ["větší", "vetsi", "larger"]) else 20,
@@ -264,7 +264,7 @@ def refine_context(context, text):
 def chart_spec_from_result(result, prompt=""):
     data = run_sql(result["sql"])
     if result["kind"] == "table" or len(data.columns) < 2:
-        return {"title": result["title"], "kind": "table", "sql": result["sql"], "x": data.columns[0], "y": data.columns[-1], "color": BLUE, "highlight": None, "font": "Arial", "title_size": 20, "position": "bottom"}
+        return {"title": result["title"], "kind": "table", "sql": result["sql"], "x": data.columns[0], "y": data.columns[-1], "color": TEAL, "highlight": None, "font": "Arial", "title_size": 20, "position": "bottom"}
     design = parse_visual_prompt(prompt or result["title"])
     design.update({"title": result["title"], "kind": "bar", "sql": result["sql"], "x": data.columns[0], "y": data.columns[1]})
     return design
@@ -281,11 +281,11 @@ def chart_figure(spec, data):
     if kind == "pie":
         figure = go.Figure(go.Pie(labels=data[spec["x"]], values=data[spec["y"]], marker_colors=colors_for_bars, hole=0.42))
     elif kind in ("line", "area"):
-        figure = go.Figure(go.Scatter(x=data[spec["x"]], y=data[spec["y"]], mode="lines+markers", line={"color": spec["color"], "width": 3}, fill="tozeroy" if kind == "area" else None, fillcolor="rgba(37,99,235,.14)" if kind == "area" else None))
+        figure = go.Figure(go.Scatter(x=data[spec["x"]], y=data[spec["y"]], mode="lines+markers", line={"color": spec["color"], "width": 3}, fill="tozeroy" if kind == "area" else None, fillcolor="rgba(11,59,46,.12)" if kind == "area" else None))
     else:
         figure = go.Figure(go.Bar(x=data[spec["x"]], y=data[spec["y"]], marker_color=colors_for_bars, text=[f"{value:,.0f}".replace(",", " ") for value in data[spec["y"]]], textposition="outside"))
     figure.update_layout(
-        title={"text": spec["title"], "font": {"family": spec["font"], "size": spec["title_size"], "color": NAVY}},
+        title={"text": spec["title"], "font": {"family": spec["font"], "size": spec["title_size"], "color": FOREST}},
         font={"family": spec["font"], "color": SLATE}, paper_bgcolor="white", plot_bgcolor="white",
         margin=dict(t=58, r=18, b=30, l=20), height=340, xaxis_title="", yaxis_title="Kč", yaxis_gridcolor="#E5E7EB",
     )
@@ -322,7 +322,7 @@ def pdf_report(page):
         preview = [list(data.columns)] + data.head(8).astype(str).values.tolist()
         table = Table(preview, repeatRows=1, colWidths=[(17.5 * cm) / max(1, len(data.columns))] * len(data.columns))
         table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(FOREST)),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
             ("FONTSIZE", (0, 0), (-1, -1), 7),
@@ -336,42 +336,51 @@ def pdf_report(page):
 def style_app():
     st.markdown(
         f"""<style>
-        @import url('https://fonts.googleapis.com/css2?family=DM+Mono&family=DM+Sans:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap');
-        .stApp {{ background: {PAPER}; color: {NAVY}; font-family: 'DM Sans', sans-serif; }}
-        h1,h2,h3 {{ color: {NAVY}; letter-spacing: -.035em; }}
-        [data-testid='stSidebar'] {{ background: {NAVY}; }} [data-testid='stSidebar'] * {{ color: #F8FAFC; }}
+        @import url('https://fonts.googleapis.com/css2?family=DM+Mono&family=DM+Sans:wght@400;500;600;700&display=swap');
+        .stApp {{ background: {PAPER}; color: {FOREST}; font-family: 'DM Sans', sans-serif; }}
+        .block-container {{ max-width: 1280px; padding-top: 2.25rem; padding-bottom: 2.5rem; }}
+        h1,h2,h3 {{ color: {FOREST}; letter-spacing: -.035em; }}
+        h1 {{ font-size: clamp(1.85rem, 4vw, 2.55rem) !important; margin-bottom: .2rem !important; }}
+        [data-testid='stSidebar'] {{ background: {FOREST}; border-right: 1px solid rgba(255,255,255,.14); }}
+        [data-testid='stSidebar'] * {{ color: #FFFFFF; }}
+        [data-testid='stSidebar'] [role='radiogroup'] label {{ border-radius: 8px; padding: .36rem .45rem; }}
+        [data-testid='stSidebar'] [role='radiogroup'] label:has(input:checked) {{ background: {PINK}; }}
         [data-testid='stTextArea'] textarea, [data-testid='stTextInput'] input,
         [data-testid='stSelectbox'] [data-baseweb='select'] > div {{
-            background: #FFFFFF !important; color: {NAVY} !important; border-color: #94A3B8 !important;
+            background: #FFFFFF !important; color: {FOREST} !important; border: 1px solid #9EB5AA !important; border-radius: 8px !important;
         }}
-        [data-testid='stTextArea'] textarea::placeholder, [data-testid='stTextInput'] input::placeholder {{ color: #64748B !important; opacity: 1 !important; }}
-        [data-testid='stTextArea'] textarea {{ caret-color: {NAVY} !important; }}
-        [data-testid='stSelectbox'] *, [data-testid='stTextArea'] textarea, [data-testid='stTextInput'] input {{ color: {NAVY} !important; }}
-        label, [data-testid='stWidgetLabel'] p {{ color: {NAVY} !important; font-weight: 600 !important; }}
-        .trace {{ border-left: 4px solid {PINK}; background: #FFF1F7; padding: .55rem .8rem; border-radius: 0 8px 8px 0; color: {SLATE}; margin: .25rem 0 .65rem; font-size: .9rem; }}
+        [data-testid='stTextArea'] textarea::placeholder, [data-testid='stTextInput'] input::placeholder {{ color: #587066 !important; opacity: 1 !important; }}
+        [data-testid='stTextArea'] textarea {{ caret-color: {FOREST} !important; }}
+        [data-testid='stSelectbox'] *, [data-testid='stTextArea'] textarea, [data-testid='stTextInput'] input {{ color: {FOREST} !important; }}
+        label, [data-testid='stWidgetLabel'] p {{ color: {FOREST} !important; font-weight: 600 !important; }}
+        [data-testid='stSidebar'] label, [data-testid='stSidebar'] [data-testid='stWidgetLabel'] p {{ color: #FFFFFF !important; }}
+        [data-testid='stTextArea'] textarea:focus, [data-testid='stTextInput'] input:focus, button:focus-visible {{ outline: 3px solid rgba(194,24,91,.45) !important; outline-offset: 2px !important; }}
+        .trace {{ border-left: 4px solid {PINK}; background: #FCE7F3; padding: .7rem .9rem; border-radius: 0 10px 10px 0; color: {FOREST}; margin: .35rem 0 .8rem; font-size: .95rem; line-height: 1.5; }}
         [data-testid='stChatMessage'] {{ padding: .28rem 0 !important; gap: .55rem !important; }}
         [data-testid='stChatMessageContent'] {{ width: 100%; }}
-        .chat-user, .chat-ai {{ border-radius: 10px; padding: .62rem .8rem .7rem; margin: 0 0 .18rem; }}
-        .chat-user {{ background: #EAF2FF; border-left: 4px solid {BLUE}; }}
-        .chat-ai {{ background: #FFFFFF; border-left: 4px solid {NAVY}; box-shadow: 0 1px 1px rgba(20,33,61,.05); }}
+        .chat-user, .chat-ai {{ border-radius: 10px; padding: .72rem .9rem .8rem; margin: 0 0 .25rem; }}
+        .chat-user {{ background: #E5F0EA; border-left: 4px solid {TEAL}; }}
+        .chat-ai {{ background: #FFFFFF; border-left: 4px solid {PINK}; box-shadow: 0 1px 2px rgba(11,59,46,.08); }}
         .chat-label {{ color: {SLATE}; font-size: .67rem; font-weight: 700; letter-spacing: .08em; margin-bottom: .25rem; }}
-        .chat-ai .chat-label {{ color: {NAVY}; }}
+        .chat-ai .chat-label {{ color: {FOREST}; }}
         .chat-summary {{ color: {SLATE}; margin: 0 0 .45rem; }}
         [data-testid='stChatMessage'] h2, [data-testid='stChatMessage'] h3 {{ margin: .25rem 0 .4rem !important; }}
         [data-testid='stChatMessage'] [data-testid='stPlotlyChart'] {{ margin-top: -.25rem; }}
         [data-testid='stChatMessage'] [data-testid='stDataFrame'] {{ margin-top: .25rem; }}
         .dashboard-filter-note {{ color: {SLATE}; font-size: .82rem; margin: -.25rem 0 .35rem; }}
-        .stButton>button {{ border-radius: 8px; border: 1px solid {NAVY}; color: {NAVY}; font-weight: 600; }}
-        .stButton>button[kind='primary'] {{ background: {NAVY}; color: white; }} code {{ font-family: 'DM Mono', monospace; }}
-        .stButton>button {{ background: {NAVY} !important; border-color: {NAVY} !important; color: #FFFFFF !important; min-height: 44px !important; white-space: nowrap !important; }}
-        .stButton>button *, .stButton>button p {{ color: #FFFFFF !important; white-space: nowrap !important; }}
-        .stButton>button:hover {{ background: #243B64 !important; border-color: #243B64 !important; }}
-        [data-testid='stFormSubmitButton'] > button {{ background: {NAVY} !important; border: 1px solid {NAVY} !important; border-radius: 8px !important; color: #FFFFFF !important; font-weight: 700 !important; min-height: 44px !important; }}
-        [data-testid='stFormSubmitButton'] > button *, [data-testid='stFormSubmitButton'] > button p {{ color: #FFFFFF !important; }}
-        [data-testid='stFormSubmitButton'] > button:hover {{ background: #243B64 !important; border-color: #243B64 !important; }}
-        [data-testid='stDownloadButton'] > button {{ background: {NAVY} !important; border: 1px solid {NAVY} !important; border-radius: 8px !important; color: #FFFFFF !important; font-weight: 600 !important; }}
+        code {{ font-family: 'DM Mono', monospace; }}
+        .stButton>button {{ background: #FFFFFF !important; border: 1px solid {FOREST} !important; border-radius: 8px !important; color: {FOREST} !important; font-weight: 700 !important; min-height: 44px !important; white-space: normal !important; }}
+        .stButton>button *, .stButton>button p {{ color: {FOREST} !important; white-space: normal !important; }}
+        .stButton>button:hover {{ background: #E5F0EA !important; border-color: {FOREST} !important; }}
+        .stButton>button[kind='primary'], [data-testid='stFormSubmitButton'] > button {{ background: {FOREST} !important; border-color: {FOREST} !important; color: #FFFFFF !important; }}
+        .stButton>button[kind='primary'] *, .stButton>button[kind='primary'] p, [data-testid='stFormSubmitButton'] > button *, [data-testid='stFormSubmitButton'] > button p {{ color: #FFFFFF !important; }}
+        .stButton>button[kind='primary']:hover, [data-testid='stFormSubmitButton'] > button:hover {{ background: #062D22 !important; border-color: #062D22 !important; }}
+        [data-testid='stDownloadButton'] > button {{ background: {PINK} !important; border: 1px solid {PINK} !important; border-radius: 8px !important; color: #FFFFFF !important; font-weight: 700 !important; min-height: 44px !important; }}
         [data-testid='stDownloadButton'] > button *, [data-testid='stDownloadButton'] > button p {{ color: #FFFFFF !important; }}
-        [data-testid='stDownloadButton'] > button:hover {{ background: #243B64 !important; border-color: #243B64 !important; }}
+        [data-testid='stDownloadButton'] > button:hover {{ background: #9D174D !important; border-color: #9D174D !important; }}
+        [data-testid='stDataFrame'] {{ border: 1px solid #D6E2DB; border-radius: 10px; overflow: hidden; }}
+        [data-testid='stMetric'] {{ background: #FFFFFF; border: 1px solid #D6E2DB; border-radius: 10px; padding: .7rem .9rem; }}
+        @media (max-width: 700px) {{ .block-container {{ padding: 1.15rem .9rem 2rem; }} }}
         </style>""",
         unsafe_allow_html=True,
     )
@@ -425,13 +434,13 @@ def render_analytics_chat():
     title_column, reset_column = st.columns([4, 2])
     with title_column:
         st.title("Analytický chat")
-        st.markdown("<div class='trace'><b>TRACE RAIL</b> &nbsp; Ptejte se, upřesňujte výsledek a pak z něj vytvořte vizualizaci. Každý krok ukazuje skutečné SQL.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='trace'><b>Jak to funguje</b><br>1. Zeptejte se na data. 2. Výsledek případně upřesněte. 3. Vytvořte graf a přidejte jej na dashboard. SQL je vždy viditelné.</div>", unsafe_allow_html=True)
         if st.session_state.chat_mode.startswith("OpenAI AI mode"):
             st.success(st.session_state.chat_mode)
         else:
             st.info(st.session_state.chat_mode)
     with reset_column:
-        if st.button("↺ Nová konverzace", use_container_width=True):
+        if st.button("Nová konverzace", use_container_width=True):
             st.session_state.chat_history = []
             st.session_state.analysis_context = None
             st.rerun()
@@ -445,20 +454,20 @@ def render_analytics_chat():
 
     with st.form("analytics_chat_form", clear_on_submit=True):
         prompt = st.text_area(
-            "Message",
-            placeholder="For example: How many overdue invoices do we have?",
-            help="Use Ctrl+Enter to submit the selected action.",
+            "Váš dotaz",
+            placeholder="Např. Kolik faktur je po splatnosti?",
+            help="Napište otázku k datům nebo pokyn pro vytvoření grafu.",
             height=68,
         )
         answer_column, visual_column = st.columns([1, 1], gap="small")
-        answer = answer_column.form_submit_button("Answer", type="primary", use_container_width=True)
-        visual = visual_column.form_submit_button("Create visual", type="primary", use_container_width=True)
+        answer = answer_column.form_submit_button("Zobrazit odpověď", type="primary", use_container_width=True)
+        visual = visual_column.form_submit_button("Vytvořit graf", type="primary", use_container_width=True)
 
     if not (answer or visual):
         return
     query = prompt.strip()
     if not query:
-        st.warning("Please enter a question or instruction.")
+        st.warning("Napište prosím dotaz nebo pokyn.")
         return
 
     st.session_state.chat_history.append({"role": "user", "content": query})
@@ -477,11 +486,11 @@ def render_analytics_chat():
         context = {"result": result, "plan": plan, "filters": {}, "limit": plan.get("limit")}
         error_name = type(error).__name__
         st.session_state.chat_mode = f"Local demo mode — OpenAI planner unavailable ({error_name})"
-        st.session_state.chat_notice = "The answer used local demo rules because OpenAI planning was unavailable."
+        st.session_state.chat_notice = "Odpověď vznikla podle lokálních demo pravidel, protože OpenAI plánování nebylo dostupné."
     st.session_state.analysis_context = context
 
     if visual and result["kind"] == "metric":
-        st.session_state.chat_notice = "A single-value answer cannot be added as a chart. Ask for a grouped result, such as revenue by product."
+        st.session_state.chat_notice = "Jednu hodnotu nelze převést na graf. Zeptejte se například na revenue podle produktu."
         visual = False
     if visual:
         spec = chart_spec_from_result(result, query)
@@ -501,7 +510,7 @@ def render_dashboard():
     title_column, action_column = st.columns([4, 2])
     with title_column:
         st.title(page["name"])
-        st.caption("Stránkovaný dashboard · filtry platí pro všechny karty na této stránce")
+        st.caption("Filtry níže platí pro všechny karty na této stránce.")
     with action_column:
         st.download_button("Exportovat stránku do PDF", pdf_report(page), f"insight-hub-{page['id']}.pdf", "application/pdf", type="primary", use_container_width=True)
 
@@ -515,7 +524,7 @@ def render_dashboard():
             st.rerun()
         with st.form("new_dashboard_page", clear_on_submit=True):
             page_name = st.text_input("Nová stránka", placeholder="Např. Finance")
-            if st.form_submit_button("+ Přidat stránku", use_container_width=True):
+            if st.form_submit_button("Přidat stránku", use_container_width=True):
                 new_page = add_page(document, page_name)
                 save_dashboard(document)
                 st.session_state.active_dashboard_page = new_page["id"]
@@ -542,7 +551,7 @@ def render_dashboard():
             page["filters"] = updated_filters
             save_dashboard(document)
             st.rerun()
-        st.markdown("<div class='dashboard-filter-note'>Weekly / monthly je uložené nastavení stránky; časové karty jej mohou používat při rozšíření datového dotazu.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='dashboard-filter-note'>Zvolená granularita se uloží pro tuto stránku a použije se u časových přehledů.</div>", unsafe_allow_html=True)
 
     if not page["cards"]:
         st.info("Tato stránka je zatím prázdná. V Analytickém chatu vytvořte vizualizaci a přidejte ji na dashboard.")
@@ -568,11 +577,11 @@ def render_dashboard():
                 if st.button("Upravit", key=f"select-{spec['id']}", use_container_width=True):
                     st.session_state.selected_dashboard_card = spec["id"]
                     st.rerun()
-                if index > 0 and st.button("↑", key=f"up-{spec['id']}", use_container_width=True):
+                if index > 0 and st.button("Posunout výš", key=f"up-{spec['id']}", use_container_width=True):
                     page["cards"][index - 1], page["cards"][index] = page["cards"][index], page["cards"][index - 1]
                     save_dashboard(document)
                     st.rerun()
-                if index < len(page["cards"]) - 1 and st.button("↓", key=f"down-{spec['id']}", use_container_width=True):
+                if index < len(page["cards"]) - 1 and st.button("Posunout níž", key=f"down-{spec['id']}", use_container_width=True):
                     page["cards"][index + 1], page["cards"][index] = page["cards"][index], page["cards"][index + 1]
                     save_dashboard(document)
                     st.rerun()
@@ -620,11 +629,11 @@ def render_dashboard():
 style_app()
 with st.sidebar:
     st.markdown("# ◒ Insight Hub")
-    st.caption("ERP × CRM · local POC")
+    st.caption("ERP × CRM · lokální přehled dat")
     page = st.radio("Pracovní plocha", ["Analytický chat", "Můj dashboard"])
     st.divider()
-    st.caption("Lokální data · DuckDB · read-only SQL")
-    st.caption("2026 demo dataset")
+    st.caption("Lokální data · DuckDB · SQL pouze pro čtení")
+    st.caption("Demo data 2026")
 
 if page == "Analytický chat":
     render_analytics_chat()
