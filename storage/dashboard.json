@@ -1,14 +1,133 @@
-[
-  {
-    "title": "Lowest-revenue products",
-    "kind": "bar",
-    "sql": "SELECT i.product, SUM(i.net_amount_czk) AS revenue_czk,\n       COUNT(*) AS invoice_count\nFROM invoices i\nWHERE 1 = 1\nGROUP BY i.product\nORDER BY revenue_czk ASC\nLIMIT 3",
-    "x": "product",
-    "y": "revenue_czk",
-    "color": "#2563EB",
-    "highlight": null,
-    "font": "Arial",
-    "title_size": 20,
-    "position": "bottom"
-  }
-]
+{
+  "version": 3,
+  "dashboards": [
+    {
+      "id": "default",
+      "name": "Můj dashboard",
+      "pages": [
+        {
+          "id": "da7f5ca9",
+          "name": "Přehled",
+          "filters": {
+            "segments": [],
+            "cities": [
+              "Praha"
+            ],
+            "date_from": "2026-01-01",
+            "date_to": "2026-10-31",
+            "period": "weekly"
+          },
+          "cards": [
+            {
+              "title": "Lowest-revenue products",
+              "kind": "bar",
+              "sql": "SELECT i.product, SUM(i.net_amount_czk) AS revenue_czk,\n       COUNT(*) AS invoice_count\nFROM invoices i\nWHERE 1 = 1\nGROUP BY i.product\nORDER BY revenue_czk ASC\nLIMIT 3",
+              "x": "product",
+              "y": "revenue_czk",
+              "color": "#0B3B2E",
+              "highlight": null,
+              "font": "Arial",
+              "title_size": 20,
+              "position": "bottom",
+              "id": "6d2deca2",
+              "sort_order": "original",
+              "show_table": false
+            },
+            {
+              "title": "now i want a table with companies and their number of overdue invoices. in the first row a total",
+              "kind": "table",
+              "sql": "SELECT * FROM (SELECT 'Total' AS company_name, COUNT(i.invoice_id) AS overdue_invoices_count\nFROM invoices i\nWHERE i.payment_status = 'Overdue'\nUNION ALL\nSELECT c.company_name, COUNT(i.invoice_id) AS overdue_invoices_count\nFROM companies c\nLEFT JOIN invoices i ON c.company_id = i.company_id AND i.payment_status = 'Overdue'\nGROUP BY c.company_name\nORDER BY company_name = 'Total' DESC, company_name\nLIMIT 500) AS _bounded_result LIMIT 500",
+              "x": "company_name",
+              "y": "overdue_invoices_count",
+              "color": "#0B3B2E",
+              "id": "111ce8ee",
+              "highlight": null,
+              "font": "Arial",
+              "title_size": 20,
+              "position": "bottom",
+              "sort_order": "original",
+              "show_table": false
+            },
+            {
+              "title": "creata a histogram with segments and their reveue",
+              "kind": "pie",
+              "sql": "SELECT * FROM (SELECT segment, SUM(net_amount_czk) AS total_revenue_czk\nFROM companies c\nJOIN invoices i ON c.company_id = i.company_id\nWHERE i.payment_status = 'Paid'\nGROUP BY segment\nORDER BY total_revenue_czk DESC\nLIMIT 500) AS _bounded_result LIMIT 500",
+              "x": "segment",
+              "y": "total_revenue_czk",
+              "color": "#C2185B",
+              "id": "569d03a9",
+              "highlight": null,
+              "font": "Arial",
+              "title_size": 20,
+              "position": "bottom",
+              "sort_order": "original",
+              "show_table": false
+            }
+          ]
+        },
+        {
+          "id": "d5205f70",
+          "name": "Test",
+          "filters": {
+            "segments": [],
+            "cities": [],
+            "date_from": "2026-01-01",
+            "date_to": "2026-10-31",
+            "period": "monthly"
+          },
+          "cards": []
+        }
+      ]
+    }
+  ],
+  "saved_chats": [
+    {
+      "id": "e1414748",
+      "title": "how many invoices are currently overdue",
+      "history": [
+        {
+          "role": "user",
+          "content": "how many invoices are currently overdue"
+        },
+        {
+          "role": "assistant",
+          "mode": "answer",
+          "result": {
+            "title": "how many invoices are currently overdue",
+            "kind": "query",
+            "summary": "Result from a safely executed read-only SQL query.",
+            "sql": "SELECT * FROM (SELECT COUNT(*) AS overdue_invoices_count FROM invoices WHERE payment_status = 'Overdue') AS _bounded_result LIMIT 500"
+          }
+        },
+        {
+          "role": "user",
+          "content": "now i want a table with companies and their number of overdue invoices. in the first row a total"
+        },
+        {
+          "role": "assistant",
+          "mode": "answer",
+          "result": {
+            "title": "now i want a table with companies and their number of overdue invoices. in the first row a total",
+            "kind": "query",
+            "summary": "Result from a safely executed read-only SQL query.",
+            "sql": "SELECT * FROM (SELECT 'Total' AS company_name, COUNT(i.invoice_id) AS overdue_invoices_count\nFROM invoices i\nWHERE i.payment_status = 'Overdue'\nUNION ALL\nSELECT c.company_name, COUNT(i.invoice_id) AS overdue_invoices_count\nFROM companies c\nLEFT JOIN invoices i ON c.company_id = i.company_id AND i.payment_status = 'Overdue'\nGROUP BY c.company_name\nORDER BY company_name = 'Total' DESC, company_name\nLIMIT 500) AS _bounded_result LIMIT 500"
+          }
+        },
+        {
+          "role": "user",
+          "content": "creata a histogram with segments and their reveue"
+        },
+        {
+          "role": "assistant",
+          "mode": "answer",
+          "result": {
+            "title": "creata a histogram with segments and their reveue",
+            "kind": "query",
+            "summary": "Result from a safely executed read-only SQL query.",
+            "sql": "SELECT * FROM (SELECT segment, SUM(net_amount_czk) AS total_revenue_czk\nFROM companies c\nJOIN invoices i ON c.company_id = i.company_id\nWHERE i.payment_status = 'Paid'\nGROUP BY segment\nORDER BY total_revenue_czk DESC\nLIMIT 500) AS _bounded_result LIMIT 500"
+          }
+        }
+      ]
+    }
+  ]
+}

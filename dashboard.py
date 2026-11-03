@@ -4,13 +4,15 @@ from copy import deepcopy
 import re
 import uuid
 
+from sqlglot import exp, parse_one
+from sqlglot.optimizer.scope import traverse_scope
+
 
 SEGMENTS = ("Enterprise", "Mid-market", "SMB")
 CITIES = ("Praha", "Brno", "Ostrava", "Plzeň", "Liberec", "Olomouc")
 CHART_KINDS = ("bar", "line", "area", "pie", "table", "metric")
 PERIODS = ("monthly", "weekly")
-COLORS = ("#0B3B2E", "#C2185B", "#2F6B5A", "#7C3AED", "#EA580C")
-LEGACY_COLOR_MAP = {"#2563EB": "#2F6B5A", "#EC4899": "#C2185B", "#0F766E": "#0B3B2E"}
+COLORS = ("#0B3B2E", "#C2185B", "#4B5563")
 
 
 def default_filters():
@@ -23,7 +25,8 @@ def default_page(name="Přehled", cards=None):
 
 def normalize_card(card):
     normalized = dict(card)
-    normalized["color"] = LEGACY_COLOR_MAP.get(normalized.get("color"), normalized.get("color"))
+    if normalized.get("color") not in COLORS:
+        normalized["color"] = COLORS[0]
     normalized.setdefault("id", uuid.uuid4().hex[:8])
     normalized.setdefault("kind", "bar")
     normalized.setdefault("color", COLORS[0])
@@ -70,10 +73,79 @@ def normalize_dashboard(document):
     return {"version": 2, "pages": pages or [default_page()]}
 
 
+def normalize_workspace(document):
+    """Keep legacy pages together in one dashboard and normalize saved chats."""
+    if not isinstance(document, dict) or "dashboards" not in document:
+        dashboards = [{
+            "id": "default", "name": "Můj dashboard",
+            "pages": normalize_dashboard(document)["pages"],
+        }]
+    else:
+        dashboards = []
+        for item in document["dashboards"]:
+            if not isinstance(item, dict):
+                continue
+            dashboards.append({
+                "id": item.get("id") or uuid.uuid4().hex[:8],
+                "name": item.get("name") or "Bez názvu",
+                "pages": normalize_dashboard(item)["pages"],
+            })
+        if not dashboards:
+            return normalize_workspace(None)
+    saved_chats = []
+    if isinstance(document, dict):
+        for chat in document.get("saved_chats", []):
+            if not isinstance(chat, dict) or not isinstance(chat.get("history"), list):
+                continue
+            saved_chats.append({
+                "id": chat.get("id") or uuid.uuid4().hex[:8],
+                "title": str(chat.get("title") or "Uložený chat").strip()[:60] or "Uložený chat",
+                "history": deepcopy(chat["history"]),
+            })
+    return {"version": 3, "dashboards": dashboards, "saved_chats": saved_chats}
+
+
+def add_dashboard(document, name, overview_name="Přehled"):
+    name = name.strip()[:60].strip()
+    if not name:
+        raise ValueError("Enter a dashboard name.")
+    if dashboard_name_exists(document, name):
+        raise ValueError("A dashboard with this name already exists.")
+    dashboard = {
+        "id": uuid.uuid4().hex[:8], "name": name,
+        "pages": [default_page(overview_name)],
+    }
+    document["dashboards"].append(dashboard)
+    return dashboard
+
+
+def dashboard_by_id(document, dashboard_id):
+    dashboard = next((item for item in document["dashboards"] if item["id"] == dashboard_id), None)
+    if dashboard is None:
+        raise ValueError("The selected dashboard does not exist.")
+    return dashboard
+
+
+def dashboard_name_exists(document, name):
+    return _name_exists(document["dashboards"], name)
+
+
 def add_page(document, name):
     page = default_page((name or "Nová stránka").strip()[:60] or "Nová stránka")
     document["pages"].append(page)
     return page
+
+
+def page_name_exists(document, name):
+    return _name_exists(document["pages"], name)
+
+
+def _name_exists(items, name):
+    normalized_name = (name or "").strip()[:60].strip().casefold()
+    return bool(normalized_name) and any(
+        item["name"].strip()[:60].strip().casefold() == normalized_name
+        for item in items
+    )
 
 
 def remove_page(document, page_id):
@@ -87,37 +159,52 @@ def page_by_id(document, page_id):
     return next((page for page in document["pages"] if page["id"] == page_id), document["pages"][0])
 
 
-def _quote_values(values):
-    return ", ".join("'" + value.replace("'", "''") + "'" for value in values)
+def add_card_to_page(document, page_id, card):
+    """Append a normalized card to the explicitly selected dashboard page."""
+    page = next((item for item in document["pages"] if item["id"] == page_id), None)
+    if page is None:
+        raise ValueError("The selected dashboard page does not exist.")
+    page["cards"].append(normalize_card(card))
+    return page
 
 
 def apply_filters_to_sql(sql, filters):
-    """Add only whitelisted page filters to the application's known SELECT queries."""
+    """Filter base sources before aggregation, preserving aliases and query scopes."""
     filters = normalize_filters(filters)
     if not any(filters[key] for key in ("segments", "cities", "date_from", "date_to")):
         return sql
-    source = "invoices" if re.search(r"\bFROM\s+invoices\b", sql, flags=re.I) else "opportunities" if re.search(r"\bFROM\s+opportunities\b", sql, flags=re.I) else None
-    if not source:
-        return sql
-    alias, date_column = ("i", "invoice_date") if source == "invoices" else ("o", "created_date")
-    filtered_sql = sql
-    needs_company = filters["segments"] or filters["cities"]
-    if needs_company and not re.search(r"\bJOIN\s+companies\b", filtered_sql, flags=re.I):
-        filtered_sql = re.sub(rf"\bFROM\s+{source}\s+{alias}\b", f"FROM {source} {alias} JOIN companies c USING (company_id)", filtered_sql, count=1, flags=re.I)
-        filtered_sql = re.sub(rf"\bFROM\s+{source}\b", f"FROM {source} {alias} JOIN companies c USING (company_id)", filtered_sql, count=1, flags=re.I)
-    conditions = []
-    if filters["segments"]:
-        conditions.append(f"c.segment IN ({_quote_values(filters['segments'])})")
-    if filters["cities"]:
-        conditions.append(f"c.city IN ({_quote_values(filters['cities'])})")
-    if filters["date_from"]:
-        conditions.append(f"CAST({alias}.{date_column} AS DATE) >= DATE '{filters['date_from']}'")
-    if filters["date_to"]:
-        conditions.append(f"CAST({alias}.{date_column} AS DATE) <= DATE '{filters['date_to']}'")
-    condition_sql = " AND ".join(conditions)
-    if re.search(r"\bWHERE\b", filtered_sql, flags=re.I):
-        return re.sub(r"\bWHERE\b", f"WHERE {condition_sql} AND ", filtered_sql, count=1, flags=re.I)
-    return re.sub(r"\b(GROUP\s+BY|ORDER\s+BY|LIMIT)\b", f"WHERE {condition_sql}\n\\1", filtered_sql, count=1, flags=re.I)
+    query = parse_one(sql, read="duckdb")
+    changed = False
+    for scope in traverse_scope(query):
+        for _, source in scope.selected_sources.values():
+            if not isinstance(source, exp.Table):
+                continue
+            date_column = {"invoices": "invoice_date", "opportunities": "created_date"}.get(source.name.lower())
+            if date_column is None:
+                continue
+            conditions = []
+            for key, comparison in (("date_from", exp.GTE), ("date_to", exp.LTE)):
+                if filters[key]:
+                    conditions.append(comparison(
+                        this=exp.cast(exp.column(date_column), "DATE"),
+                        expression=exp.cast(exp.Literal.string(filters[key]), "DATE"),
+                    ))
+            company_conditions = [
+                exp.column(column).isin(*(exp.Literal.string(value) for value in filters[key]))
+                for key, column in (("segments", "segment"), ("cities", "city"))
+                if filters[key]
+            ]
+            if company_conditions:
+                companies = exp.select("company_id").from_("companies").where(*company_conditions)
+                conditions.append(exp.In(this=exp.column("company_id"), query=companies.subquery()))
+            base_table = source.copy()
+            base_table.set("alias", None)
+            filtered_source = exp.select("*").from_(base_table).where(*conditions).subquery()
+            alias = source.args.get("alias")
+            filtered_source.set("alias", alias.copy() if alias else exp.TableAlias(this=source.this.copy()))
+            source.replace(filtered_source)
+            changed = True
+    return query.sql(dialect="duckdb") if changed else sql
 
 
 def apply_time_granularity(sql, period):
@@ -184,7 +271,7 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
     if any(term in prompt for term in ("sestup", "descending", "nejvyš", "nejvyss")):
         selected["sort_order"] = "descending"
         return document, f"Karta „{selected['title']}“ je seřazena sestupně."
-    color_terms = {"růž": "#C2185B", "ruz": "#C2185B", "pink": "#C2185B", "modr": "#2F6B5A", "blue": "#2F6B5A", "zelen": "#0B3B2E", "green": "#0B3B2E", "fial": "#7C3AED", "purple": "#7C3AED"}
+    color_terms = {"růž": "#C2185B", "ruz": "#C2185B", "pink": "#C2185B", "zelen": "#0B3B2E", "green": "#0B3B2E", "šed": "#4B5563", "sed": "#4B5563", "gray": "#4B5563", "grey": "#4B5563"}
     for term, color in color_terms.items():
         if term in prompt:
             selected["color"] = color

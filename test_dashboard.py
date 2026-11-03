@@ -1,6 +1,20 @@
 import unittest
 
-from dashboard import apply_filters_to_sql, apply_time_granularity, normalize_dashboard, parse_editor_command
+import duckdb
+
+from dashboard import (
+    add_card_to_page,
+    add_dashboard,
+    add_page,
+    apply_filters_to_sql,
+    apply_time_granularity,
+    dashboard_by_id,
+    dashboard_name_exists,
+    normalize_dashboard,
+    normalize_workspace,
+    page_name_exists,
+    parse_editor_command,
+)
 
 
 class DashboardTests(unittest.TestCase):
@@ -14,10 +28,16 @@ class DashboardTests(unittest.TestCase):
     def test_filter_sql_uses_only_whitelisted_values(self):
         sql = "SELECT i.product, SUM(i.net_amount_czk) AS revenue FROM invoices i WHERE 1 = 1 GROUP BY i.product"
         filtered = apply_filters_to_sql(sql, {"segments": ["Enterprise"], "cities": ["Praha"], "date_from": "2026-02-01", "date_to": "2026-04-30", "period": "monthly"})
-        self.assertIn("JOIN companies c USING (company_id)", filtered)
-        self.assertIn("c.segment IN ('Enterprise')", filtered)
-        self.assertIn("c.city IN ('Praha')", filtered)
-        self.assertIn("i.invoice_date", filtered)
+        self.assertIn("segment IN ('Enterprise')", filtered)
+        self.assertIn("city IN ('Praha')", filtered)
+        self.assertIn("invoice_date", filtered)
+        self.assertIn("AS i", filtered)
+
+    def test_filter_sql_adds_one_join_when_source_already_has_alias(self):
+        sql = "SELECT i.product FROM invoices i WHERE 1 = 1"
+        filtered = apply_filters_to_sql(sql, {"segments": [], "cities": ["Praha"], "date_from": None, "date_to": None, "period": "monthly"})
+        self.assertEqual(filtered.count("SELECT company_id FROM companies"), 1)
+        self.assertIn("AS i", filtered)
 
     def test_editor_adds_page_and_edits_selected_card(self):
         document = normalize_dashboard([{"title": "Revenue", "kind": "bar", "sql": "SELECT 1", "x": "x", "y": "y"}])
@@ -36,12 +56,199 @@ class DashboardTests(unittest.TestCase):
         updated, _ = parse_editor_command(document, page["id"], "Nastav weekly")
         self.assertEqual(updated["pages"][0]["filters"]["period"], "weekly")
 
+    def test_chat_card_is_added_to_the_selected_page(self):
+        document = normalize_dashboard([])
+        overview = document["pages"][0]
+        finance = {"id": "finance", "name": "Finance", "filters": {}, "cards": []}
+        document["pages"].append(finance)
+        card = {"title": "Overdue invoices", "kind": "table", "sql": "SELECT 1", "x": "value", "y": "value"}
+
+        added_page = add_card_to_page(document, "finance", card)
+
+        self.assertEqual(added_page["name"], "Finance")
+        self.assertEqual(overview["cards"], [])
+        self.assertEqual(added_page["cards"][0]["title"], "Overdue invoices")
+        self.assertEqual(added_page["cards"][0]["kind"], "table")
+
+    def test_adding_chat_card_rejects_unknown_page(self):
+        document = normalize_dashboard([])
+        with self.assertRaises(ValueError):
+            add_card_to_page(document, "missing-page", {"title": "Result", "sql": "SELECT 1"})
+
+    def test_dashboard_name_check_ignores_case_and_surrounding_spaces(self):
+        document = normalize_dashboard(None)
+        document["pages"][0]["name"] = "Finance"
+        self.assertTrue(page_name_exists(document, " finance "))
+        self.assertFalse(page_name_exists(document, "Sales"))
+        self.assertFalse(page_name_exists(document, " "))
+
+    def test_workspace_migration_preserves_all_legacy_pages_and_ids(self):
+        legacy = normalize_dashboard([{
+            "id": "card", "title": "Revenue", "kind": "bar", "sql": "SELECT 1",
+        }])
+        add_page(legacy, "Finance")
+        legacy["pages"][0]["filters"]["cities"] = ["Praha"]
+        workspace = normalize_workspace(legacy)
+        self.assertEqual(workspace["version"], 3)
+        self.assertEqual(len(workspace["dashboards"]), 1)
+        dashboard = workspace["dashboards"][0]
+        self.assertEqual(dashboard["name"], "Můj dashboard")
+        self.assertEqual(dashboard["pages"], legacy["pages"])
+        self.assertEqual(normalize_workspace(workspace), workspace)
+        self.assertEqual(normalize_workspace(legacy), workspace)
+
+    def test_workspace_migrates_legacy_cards(self):
+        workspace = normalize_workspace([{"id": "one", "title": "Result", "sql": "SELECT 1"}])
+        overview = workspace["dashboards"][0]["pages"][0]
+        self.assertEqual(overview["name"], "Přehled")
+        self.assertEqual(overview["cards"][0]["id"], "one")
+        self.assertEqual(workspace["saved_chats"], [])
+
+    def test_workspace_preserves_valid_saved_chats_and_ignores_invalid_entries(self):
+        history = [{"role": "user", "content": "Kolik je faktur po splatnosti?"}]
+        workspace = normalize_workspace({
+            "version": 3,
+            "dashboards": [{"id": "default", "name": "Můj dashboard", "pages": []}],
+            "saved_chats": [
+                {"id": "chat-1", "title": "  Po splatnosti  ", "history": history},
+                {"id": "broken", "title": "Broken", "history": "not a list"},
+            ],
+        })
+
+        self.assertEqual(workspace["saved_chats"], [{
+            "id": "chat-1", "title": "Po splatnosti", "history": history,
+        }])
+        self.assertIsNot(workspace["saved_chats"][0]["history"], history)
+
+    def test_dashboards_have_independent_pages_cards_and_filters(self):
+        workspace = normalize_workspace(None)
+        original = workspace["dashboards"][0]
+        finance = add_dashboard(workspace, "Finance")
+        revenue = add_page(finance, "Tržby")
+        add_card_to_page(finance, revenue["id"], {"title": "Revenue", "sql": "SELECT 1"})
+        finance["pages"][0]["filters"]["cities"] = ["Brno"]
+        self.assertEqual([page["name"] for page in original["pages"]], ["Přehled"])
+        self.assertEqual(original["pages"][0]["cards"], [])
+        self.assertEqual(original["pages"][0]["filters"]["cities"], [])
+        self.assertEqual(finance["pages"][0]["cards"], [])
+        self.assertEqual(len(revenue["cards"]), 1)
+        self.assertIs(dashboard_by_id(workspace, finance["id"]), finance)
+        with self.assertRaises(ValueError):
+            add_card_to_page(original, revenue["id"], {"sql": "SELECT 1"})
+        with self.assertRaises(ValueError):
+            dashboard_by_id(workspace, "missing")
+
+    def test_dashboard_names_are_validated_separately_from_page_names(self):
+        workspace = normalize_workspace(None)
+        add_page(workspace["dashboards"][0], "Finance")
+        finance = add_dashboard(workspace, " Finance ")
+        self.assertEqual(finance["name"], "Finance")
+        self.assertTrue(dashboard_name_exists(workspace, " FINANCE "))
+        self.assertFalse(page_name_exists(finance, "Finance"))
+        with self.assertRaises(ValueError):
+            add_dashboard(workspace, "finance")
+        with self.assertRaises(ValueError):
+            add_dashboard(workspace, " ")
+
+    def test_editor_changes_only_selected_dashboard_pages(self):
+        workspace = normalize_workspace(None)
+        finance = add_dashboard(workspace, "Finance")
+        edited, _ = parse_editor_command(finance, finance["pages"][0]["id"], "Přidej stránku Tržby")
+        finance["pages"] = edited["pages"]
+        restored = normalize_workspace(workspace)
+        self.assertEqual([page["name"] for page in restored["dashboards"][0]["pages"]], ["Přehled"])
+        self.assertEqual([page["name"] for page in restored["dashboards"][1]["pages"]], ["Přehled", "Tržby"])
+
     def test_weekly_granularity_rewrites_known_monthly_query(self):
         monthly = "SELECT strftime(CAST(i.invoice_date AS DATE), '%Y-%m') AS month FROM invoices i GROUP BY month ORDER BY month"
         weekly = apply_time_granularity(monthly, "weekly")
         self.assertIn("date_trunc('week'", weekly)
         self.assertIn("GROUP BY week", weekly)
         self.assertIn("ORDER BY week", weekly)
+
+
+class DashboardSqlFilterTests(unittest.TestCase):
+    def setUp(self):
+        self.connection = duckdb.connect()
+        self.addCleanup(self.connection.close)
+        self.connection.execute("""
+            CREATE TABLE companies AS
+            SELECT * FROM (VALUES
+                (1, 'Alpha', 'Enterprise', 'Praha'),
+                (2, 'Beta', 'SMB', 'Brno'),
+                (3, 'Gamma', 'Enterprise', 'Praha')
+            ) AS t(company_id, company_name, segment, city);
+            CREATE TABLE invoices AS
+            SELECT * FROM (VALUES
+                (1, 1, DATE '2025-12-01', 'Overdue'),
+                (2, 1, DATE '2026-03-01', 'Overdue'),
+                (3, 1, DATE '2026-04-01', 'Paid'),
+                (4, 2, DATE '2026-05-01', 'Overdue'),
+                (5, 2, DATE '2027-01-01', 'Overdue')
+            ) AS t(invoice_id, company_id, invoice_date, payment_status);
+            CREATE TABLE opportunities AS
+            SELECT invoice_id AS opportunity_id, company_id, invoice_date AS created_date
+            FROM invoices;
+        """)
+        self.filters = {"date_from": "2026-01-01", "date_to": "2026-10-31"}
+
+    def execute_filtered(self, sql, filters=None):
+        return self.connection.execute(
+            apply_filters_to_sql(sql, self.filters if filters is None else filters),
+        ).fetchall()
+
+    def test_unaliased_overdue_metric_with_date_filters(self):
+        sql = "SELECT COUNT(*) FROM invoices WHERE payment_status = 'Overdue'"
+        self.assertEqual(self.execute_filtered(sql), [(2,)])
+
+    def test_filters_apply_without_where_and_with_aliases_and_suffixes(self):
+        for source in ("invoices", "opportunities"):
+            for alias in ("", " i", " AS custom_source", ' AS "custom source"'):
+                for suffix in ("", ";", " ORDER BY 1 LIMIT 10"):
+                    with self.subTest(source=source, alias=alias, suffix=suffix):
+                        sql = f"SELECT COUNT(*) FROM {source}{alias}{suffix}"
+                        self.assertEqual(self.execute_filtered(sql), [(3,)])
+
+    def test_company_filters_with_or_without_existing_join(self):
+        filters = {**self.filters, "cities": ["Praha"], "segments": ["Enterprise", "Other"]}
+        for source in (
+            "invoices",
+            "invoices i",
+            "invoices AS inv JOIN companies AS customer USING (company_id)",
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(self.execute_filtered(f"SELECT COUNT(*) FROM {source}", filters), [(2,)])
+
+    def test_filters_reach_both_union_branches_inside_bounded_query(self):
+        sql = """SELECT * FROM (
+            SELECT 'Total' AS company_name, COUNT(*) AS invoice_count
+            FROM invoices WHERE payment_status = 'Overdue'
+            UNION ALL
+            SELECT c.company_name, COUNT(i.invoice_id)
+            FROM companies c LEFT JOIN invoices i
+                ON c.company_id = i.company_id AND i.payment_status = 'Overdue'
+            GROUP BY c.company_name
+        ) AS _bounded_result ORDER BY company_name LIMIT 500"""
+        self.assertEqual(
+            self.execute_filtered(sql),
+            [("Alpha", 1), ("Beta", 1), ("Gamma", 0), ("Total", 2)],
+        )
+
+    def test_cte_shadowing_source_name_is_not_filtered_as_base_table(self):
+        sql = "WITH invoices AS (SELECT COUNT(*) AS total FROM invoices) SELECT * FROM invoices"
+        self.assertEqual(self.execute_filtered(sql), [(3,)])
+
+    def test_existing_or_predicate_stays_inside_filters(self):
+        sql = "SELECT COUNT(*) FROM invoices WHERE payment_status = 'Paid' OR payment_status = 'Overdue'"
+        self.assertEqual(self.execute_filtered(sql), [(3,)])
+
+    def test_no_filters_preserves_original_sql(self):
+        sql = "SELECT COUNT(*) FROM invoices;"
+        self.assertEqual(apply_filters_to_sql(sql, {}), sql)
+
+    def test_unrelated_source_and_literals_are_not_rewritten(self):
+        sql = "SELECT 'FROM invoices' AS description FROM companies ORDER BY company_id"
+        self.assertEqual(self.execute_filtered(sql), [("FROM invoices",)] * 3)
 
 
 if __name__ == "__main__":
