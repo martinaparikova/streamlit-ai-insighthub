@@ -1,4 +1,4 @@
-# Insight Hub — lokální Streamlit POC
+# Biizy — BI easy · lokální Streamlit POC
 
 Lokální demonstrace propojených CRM a ERP dat. Data zůstávají v lokálních CSV a v paměťovém DuckDB:
 

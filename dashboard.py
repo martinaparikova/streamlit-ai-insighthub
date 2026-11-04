@@ -1,6 +1,7 @@
 """Dashboard configuration, safe filter application, and local editor commands."""
 
 from copy import deepcopy
+from datetime import date, timedelta
 import re
 import uuid
 
@@ -10,7 +11,7 @@ from sqlglot.optimizer.scope import traverse_scope
 
 SEGMENTS = ("Enterprise", "Mid-market", "SMB")
 CITIES = ("Praha", "Brno", "Ostrava", "Plzeň", "Liberec", "Olomouc")
-CHART_KINDS = ("bar", "line", "area", "pie", "table", "metric")
+CHART_KINDS = ("bar", "line", "area", "pie", "table", "metric", "text", "kpi")
 PERIODS = ("monthly", "weekly")
 COLORS = ("#0B3B2E", "#C2185B", "#4B5563")
 
@@ -36,6 +37,17 @@ def normalize_card(card):
     normalized.setdefault("position", "bottom")
     normalized.setdefault("sort_order", "original")
     normalized.setdefault("show_table", False)
+    layout = normalized.get("layout") if isinstance(normalized.get("layout"), dict) else {}
+    normalized["layout"] = {
+        "row": max(0, int(layout.get("row", 0))),
+        "width": min(12, max(1, int(layout.get("width", 12)))),
+    }
+    normalized.setdefault("text", "")
+    normalized.setdefault("text_style", "note")
+    normalized.setdefault("decimal_places", 0)
+    normalized.setdefault("value_format", "number")
+    normalized.setdefault("trend_direction", "higher_is_better")
+    normalized.setdefault("comparison_label", "oproti předchozímu období")
     if normalized["kind"] not in CHART_KINDS:
         normalized["kind"] = "bar"
     return normalized
@@ -55,17 +67,51 @@ def normalize_filters(filters):
     }
 
 
+def previous_period_filters(filters):
+    """Return the immediately preceding period with the same inclusive length."""
+    normalized = normalize_filters(filters)
+    if not normalized["date_from"] or not normalized["date_to"]:
+        return None
+    start = date.fromisoformat(normalized["date_from"])
+    end = date.fromisoformat(normalized["date_to"])
+    if end < start:
+        return None
+    length = (end - start).days + 1
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=length - 1)
+    return {**normalized, "date_from": previous_start.isoformat(), "date_to": previous_end.isoformat()}
+
+
+def next_layout_row(page):
+    return max((normalize_card(card)["layout"]["row"] for card in page.get("cards", [])), default=-1) + 1
+
+
 def normalize_dashboard(document):
     """Normalize v1 list storage or v2 object storage into the current document."""
     if isinstance(document, list):
-        return {"version": 2, "pages": [default_page(cards=[normalize_card(card) for card in document])]}
+        cards = []
+        for index, card in enumerate(document):
+            if not isinstance(card, dict):
+                continue
+            normalized_card = normalize_card(card)
+            if "layout" not in card:
+                normalized_card["layout"] = {"row": index, "width": 12}
+            cards.append(normalized_card)
+        return {"version": 2, "pages": [default_page(cards=cards)]}
     if not isinstance(document, dict):
         return {"version": 2, "pages": [default_page()]}
     pages = []
     for page in document.get("pages", []):
         if not isinstance(page, dict):
             continue
-        cards = [normalize_card(card) for card in page.get("cards", []) if isinstance(card, dict)]
+        cards = []
+        for index, card in enumerate(page.get("cards", [])):
+            if not isinstance(card, dict):
+                continue
+            normalized_card = normalize_card(card)
+            if "layout" not in card:
+                normalized_card["layout"] = {"row": index, "width": 12}
+            cards.append(normalized_card)
         normalized = default_page(page.get("name") or "Bez názvu", cards)
         normalized["id"] = page.get("id") or normalized["id"]
         normalized["filters"] = normalize_filters(page.get("filters"))
@@ -102,7 +148,49 @@ def normalize_workspace(document):
                 "title": str(chat.get("title") or "Uložený chat").strip()[:60] or "Uložený chat",
                 "history": deepcopy(chat["history"]),
             })
-    return {"version": 3, "dashboards": dashboards, "saved_chats": saved_chats}
+    dashboard_history = []
+    if isinstance(document, dict):
+        for item in document.get("dashboard_history", [])[-30:]:
+            if not isinstance(item, dict) or not isinstance(item.get("dashboard"), dict):
+                continue
+            try:
+                snapshot = {
+                    "id": item.get("id") or uuid.uuid4().hex[:8],
+                    "label": str(item.get("label") or "Úprava dashboardu")[:160],
+                    "dashboard": normalize_dashboard(item["dashboard"]),
+                }
+                snapshot["dashboard"]["id"] = item["dashboard"].get("id") or snapshot["dashboard"].get("id")
+                snapshot["dashboard"]["name"] = item["dashboard"].get("name") or "Bez názvu"
+                dashboard_history.append(snapshot)
+            except (AttributeError, TypeError):
+                continue
+    return {"version": 4, "dashboards": dashboards, "saved_chats": saved_chats, "dashboard_history": dashboard_history}
+
+
+def save_dashboard_snapshot(document, dashboard, label):
+    """Store the pre-change state for Undo and version history."""
+    document.setdefault("dashboard_history", []).append({
+        "id": uuid.uuid4().hex[:8], "label": str(label or "Úprava dashboardu")[:160],
+        "dashboard": deepcopy(dashboard),
+    })
+    document["dashboard_history"] = document["dashboard_history"][-30:]
+
+
+def restore_latest_dashboard_snapshot(document, dashboard_id):
+    """Restore and consume the latest history item for one dashboard."""
+    history = document.get("dashboard_history", [])
+    for index in range(len(history) - 1, -1, -1):
+        snapshot = history[index].get("dashboard", {})
+        if snapshot.get("id") != dashboard_id:
+            continue
+        restored = deepcopy(snapshot)
+        target_index = next((i for i, item in enumerate(document["dashboards"]) if item["id"] == dashboard_id), None)
+        if target_index is None:
+            return None
+        document["dashboards"][target_index] = restored
+        history.pop(index)
+        return restored
+    return None
 
 
 def add_dashboard(document, name, overview_name="Přehled"):
@@ -234,6 +322,17 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
     if not prompt:
         return document, "Zadejte prosím pokyn pro editor."
 
+    match = re.search(r"(?:přidej|pridej|add)\s+(?:komentář|komentar|text|comment)\s*:\s*(.+)", command, flags=re.I)
+    if match:
+        content = match.group(1).strip()
+        if not content:
+            return document, "Text komentáře nesmí být prázdný."
+        page["cards"].append(normalize_card({
+            "title": "Komentář", "kind": "text", "text": content,
+            "layout": {"row": next_layout_row(page), "width": 12},
+        }))
+        return document, "Textový komentář byl přidán na dashboard."
+
     match = re.search(r"(?:přidej|pridej|nová|nova|new)\s+(?:stránku|stranku|page)\s+(.+)", command, flags=re.I)
     if match:
         new_page = add_page(document, match.group(1).strip(" ."))
@@ -260,25 +359,71 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
 
     if not selected:
         return document, "Vyberte kartu, kterou chcete upravit, nebo přidejte či přejmenujte stránku."
-    chart_terms = {"bar": ("bar", "sloupc"), "line": ("line", "spojnic"), "area": ("area", "plošn", "plosn"), "pie": ("pie", "koláč", "kolac"), "table": ("table", "tabulk")}
-    for kind, terms in chart_terms.items():
-        if any(term in prompt for term in terms):
-            selected["kind"] = kind
-            return document, f"Karta „{selected['title']}“ používá typ {kind}."
-    if any(term in prompt for term in ("vzestup", "ascending", "nejniž", "nejniz")):
-        selected["sort_order"] = "ascending"
-        return document, f"Karta „{selected['title']}“ je seřazena vzestupně."
-    if any(term in prompt for term in ("sestup", "descending", "nejvyš", "nejvyss")):
-        selected["sort_order"] = "descending"
-        return document, f"Karta „{selected['title']}“ je seřazena sestupně."
-    color_terms = {"růž": "#C2185B", "ruz": "#C2185B", "pink": "#C2185B", "zelen": "#0B3B2E", "green": "#0B3B2E", "šed": "#4B5563", "sed": "#4B5563", "gray": "#4B5563", "grey": "#4B5563"}
+    changes = []
+
+    rename_match = re.search(
+        r"(?:uprav|změň|zmen|nastav|přejmenuj|prejmenuj|rename|set|change)\s+"
+        r"(?:název|nazev|jméno|jmeno|title)\s*(?:grafu|tabulky|karty|chart|table|card)?\s*"
+        r"(?:na|to)\s+(.+)",
+        command,
+        flags=re.I,
+    )
+    if rename_match:
+        title = rename_match.group(1).strip(" .")[:120]
+        if title:
+            selected["title"] = title
+            changes.append("název")
+
+    # Change a chart type only after an explicit "change chart to …" phrase.
+    # Do not infer it from nouns such as "tabulky" in "uprav název tabulky".
+    chart_match = re.search(
+        r"(?:změň|zmen|nastav|přepni|prepni|change|set|switch)\s+(?:typ\s+)?"
+        r"(?:graf(?:u)?|chart)\s+(?:na|to)\s+"
+        r"(bar|line|area|pie|table|sloupc\w*|spojnic\w*|plošn\w*|plosn\w*|koláč\w*|kolac\w*|tabulk\w*)\b",
+        prompt,
+    )
+    if chart_match:
+        target = chart_match.group(1)
+        chart_kind = next((kind for kind, terms in {
+            "bar": ("bar", "sloupc"), "line": ("line", "spojnic"),
+            "area": ("area", "plošn", "plosn"), "pie": ("pie", "koláč", "kolac"),
+            "table": ("table", "tabulk"),
+        }.items() if any(target.startswith(term) for term in terms)), None)
+        if chart_kind:
+            selected["kind"] = chart_kind
+            changes.append(f"typ grafu: {chart_kind}")
+
+    color_terms = {
+        "růž": "#C2185B", "ruz": "#C2185B", "pink": "#C2185B",
+        "zelen": "#0B3B2E", "green": "#0B3B2E",
+        "šed": "#4B5563", "sed": "#4B5563", "gray": "#4B5563", "grey": "#4B5563",
+    }
     for term, color in color_terms.items():
         if term in prompt:
             selected["color"] = color
-            return document, f"Barva karty „{selected['title']}“ byla změněna."
+            changes.append("barva")
+            break
+
+    if any(term in prompt for term in ("vzestup", "ascending", "nejniž", "nejniz")):
+        selected["sort_order"] = "ascending"
+        changes.append("řazení vzestupně")
+    elif any(term in prompt for term in ("sestup", "descending", "nejvyš", "nejvyss")):
+        selected["sort_order"] = "descending"
+        changes.append("řazení sestupně")
     if any(term in prompt for term in ("nahoru", "up", "první", "prvni")):
         index = page["cards"].index(selected)
         if index:
             page["cards"][index - 1], page["cards"][index] = page["cards"][index], page["cards"][index - 1]
-        return document, f"Karta „{selected['title']}“ byla posunuta nahoru."
+            changes.append("pozice karty")
+    if any(term in prompt for term in ("vedle", "polovinu", "half", "half-width")):
+        selected["layout"]["width"] = 6
+        changes.append("šířka poloviny řádku")
+    elif any(term in prompt for term in ("třetinu", "tretinu", "third")):
+        selected["layout"]["width"] = 4
+        changes.append("šířka třetiny řádku")
+    elif any(term in prompt for term in ("celou šířku", "celou sirku", "full width", "full-width")):
+        selected["layout"]["width"] = 12
+        changes.append("šířka celého řádku")
+    if changes:
+        return document, f"Karta „{selected['title']}“ byla upravena: {', '.join(changes)}."
     return document, "Pokyn jsem nerozpoznal. Zkuste například „změň graf na line“, „seřaď vzestupně“ nebo „nastav růžovou“."

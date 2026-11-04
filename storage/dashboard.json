@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "dashboards": [
     {
       "id": "default",
@@ -20,7 +20,7 @@
           "cards": [
             {
               "title": "Lowest-revenue products",
-              "kind": "bar",
+              "kind": "table",
               "sql": "SELECT i.product, SUM(i.net_amount_czk) AS revenue_czk,\n       COUNT(*) AS invoice_count\nFROM invoices i\nWHERE 1 = 1\nGROUP BY i.product\nORDER BY revenue_czk ASC\nLIMIT 3",
               "x": "product",
               "y": "revenue_czk",
@@ -31,10 +31,20 @@
               "position": "bottom",
               "id": "6d2deca2",
               "sort_order": "original",
-              "show_table": false
+              "show_table": false,
+              "layout": {
+                "row": 0,
+                "width": 12
+              },
+              "text": "",
+              "text_style": "note",
+              "decimal_places": 0,
+              "value_format": "number",
+              "trend_direction": "higher_is_better",
+              "comparison_label": "oproti předchozímu období"
             },
             {
-              "title": "now i want a table with companies and their number of overdue invoices. in the first row a total",
+              "title": "companies overdue",
               "kind": "table",
               "sql": "SELECT * FROM (SELECT 'Total' AS company_name, COUNT(i.invoice_id) AS overdue_invoices_count\nFROM invoices i\nWHERE i.payment_status = 'Overdue'\nUNION ALL\nSELECT c.company_name, COUNT(i.invoice_id) AS overdue_invoices_count\nFROM companies c\nLEFT JOIN invoices i ON c.company_id = i.company_id AND i.payment_status = 'Overdue'\nGROUP BY c.company_name\nORDER BY company_name = 'Total' DESC, company_name\nLIMIT 500) AS _bounded_result LIMIT 500",
               "x": "company_name",
@@ -45,8 +55,18 @@
               "font": "Arial",
               "title_size": 20,
               "position": "bottom",
-              "sort_order": "original",
-              "show_table": false
+              "sort_order": "descending",
+              "show_table": false,
+              "layout": {
+                "row": 1,
+                "width": 12
+              },
+              "text": "",
+              "text_style": "note",
+              "decimal_places": 0,
+              "value_format": "number",
+              "trend_direction": "higher_is_better",
+              "comparison_label": "oproti předchozímu období"
             },
             {
               "title": "creata a histogram with segments and their reveue",
@@ -61,7 +81,17 @@
               "title_size": 20,
               "position": "bottom",
               "sort_order": "original",
-              "show_table": false
+              "show_table": false,
+              "layout": {
+                "row": 2,
+                "width": 12
+              },
+              "text": "",
+              "text_style": "note",
+              "decimal_places": 0,
+              "value_format": "number",
+              "trend_direction": "higher_is_better",
+              "comparison_label": "oproti předchozímu období"
             }
           ]
         },
@@ -129,5 +159,6 @@
         }
       ]
     }
-  ]
+  ],
+  "dashboard_history": []
 }

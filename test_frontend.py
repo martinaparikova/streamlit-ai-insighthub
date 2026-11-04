@@ -25,6 +25,11 @@ class FrontendTests(unittest.TestCase):
             "ROOT = Path(__file__).parent", f"ROOT = Path({str(Path(__file__).parent)!r})",
         ).replace(
             'STORE = ROOT / "storage" / "dashboard.json"', f"STORE = Path({str(self.store)!r})",
+        ).replace(
+            'if "language" not in st.session_state:\n    st.session_state.language = "en"',
+            'if "language" not in st.session_state:\n    st.session_state.language = "cs"',
+        ).replace(
+            'st.session_state.get("language", "en")', 'st.session_state.get("language", "cs")',
         )
         self.app = AppTest.from_string(self.source, default_timeout=15).run()
 
@@ -215,7 +220,7 @@ LIMIT 5""",
         self.assertEqual(len(saved["saved_chats"]), 1)
 
     def test_english_labels_and_status(self):
-        self.app.selectbox[0].select("English").run()
+        self.app.button(key="language-en").click().run()
         self.assert_no_errors()
         heading = next(item.value for item in self.app.markdown if "chat-heading" in item.value and "<h1>" in item.value)
         self.assertIn("Local data", heading)
@@ -381,7 +386,7 @@ LIMIT 5""",
         self.assertFalse(any(item.label == "Smazat stránku" for item in self.app.button))
 
     def test_dashboard_page_tabs_have_english_creation_label(self):
-        self.app.selectbox[0].select("English").run()
+        self.app.button(key="language-en").click().run()
         next(item for item in self.app.button if item.label == "Dashboards").click().run()
         next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
         self.assert_no_errors()
@@ -396,12 +401,111 @@ LIMIT 5""",
         self.open_dashboard_menu()
         next(item for item in self.app.button if item.label == "Finance").click().run()
         next(item for item in self.app.text_input if item.label == "Pokyn pro editor").input("Přidej stránku Tržby")
-        next(item for item in self.app.button if item.label == "Provést změnu").click().run()
+        next(item for item in self.app.button if item.label == "Navrhnout změnu").click().run()
+        self.assertTrue(any(item.label == "Potvrdit změnu" for item in self.app.button))
+        next(item for item in self.app.button if item.label == "Potvrdit změnu").click().run()
         self.assert_no_errors()
         self.assertEqual(self.app.header[0].value, "Tržby")
         saved = json.loads(self.store.read_text(encoding="utf-8"))
         self.assertEqual([page["name"] for page in saved["dashboards"][0]["pages"]], ["Přehled"])
         self.assertEqual([page["name"] for page in saved["dashboards"][1]["pages"]], ["Přehled", "Tržby"])
+
+    def test_dashboard_editor_changes_selected_pie_color(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["cards"] = [{
+            "id": "segment-pie", "title": "Tržby podle segmentu", "kind": "pie",
+            "sql": "SELECT segment, SUM(net_amount_czk) AS revenue FROM companies c JOIN invoices i ON c.company_id = i.company_id GROUP BY segment",
+            "x": "segment", "y": "revenue", "color": "#C2185B",
+        }]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        next(item for item in self.app.button if item.label == "Upravit").click().run()
+        next(item for item in self.app.text_input if item.label == "Pokyn pro editor").input("Změň barvy v koláči na zelené")
+        next(item for item in self.app.button if item.label == "Navrhnout změnu").click().run()
+        next(item for item in self.app.button if item.label == "Potvrdit změnu").click().run()
+        self.assert_no_errors()
+
+        card = json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]
+        self.assertEqual(card["kind"], "pie")
+        self.assertEqual(card["color"], "#0B3B2E")
+
+    def test_dashboard_editor_renames_the_selected_card_without_changing_chart_type(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["cards"] = [{
+            "id": "revenue-chart", "title": "Lowest-revenue products", "kind": "bar",
+            "sql": "SELECT product, SUM(net_amount_czk) AS revenue FROM invoices GROUP BY product",
+            "x": "product", "y": "revenue",
+        }]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        next(item for item in self.app.button if item.label == "Upravit").click().run()
+        next(item for item in self.app.text_input if item.label == "Pokyn pro editor").input("Uprav název tabulky na Number of invoices overdue")
+        next(item for item in self.app.button if item.label == "Navrhnout změnu").click().run()
+        next(item for item in self.app.button if item.label == "Potvrdit změnu").click().run()
+        self.assert_no_errors()
+
+        card = json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]
+        self.assertEqual(card["title"], "Number of invoices overdue")
+        self.assertEqual(card["kind"], "bar")
+
+    def test_dashboard_editor_cancel_and_undo_keep_history_safe(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["cards"] = [{
+            "id": "revenue-chart", "title": "Revenue", "kind": "bar", "sql": "SELECT 1 AS value", "x": "value", "y": "value",
+        }]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        next(item for item in self.app.button if item.label == "Upravit").click().run()
+        next(item for item in self.app.text_input if item.label == "Pokyn pro editor").input("Uprav název grafu na Nové tržby")
+        next(item for item in self.app.button if item.label == "Navrhnout změnu").click().run()
+        next(item for item in self.app.button if item.label == "Zahodit návrh").click().run()
+        self.assertEqual(json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]["title"], "Revenue")
+
+        next(item for item in self.app.text_input if item.label == "Pokyn pro editor").input("Uprav název grafu na Nové tržby")
+        next(item for item in self.app.button if item.label == "Navrhnout změnu").click().run()
+        next(item for item in self.app.button if item.label == "Potvrdit změnu").click().run()
+        self.assertEqual(json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]["title"], "Nové tržby")
+        next(item for item in self.app.button if item.label == "Vrátit poslední změnu").click().run()
+        self.assertEqual(json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]["title"], "Revenue")
+
+    def test_dashboard_renders_text_and_kpi_blocks_in_a_row(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["filters"] = {"date_from": "2026-02-01", "date_to": "2026-04-30"}
+        page["cards"] = [
+            {"id": "note", "title": "Komentář", "kind": "text", "text": "Tržby rostou díky Enterprise.", "layout": {"row": 0, "width": 12}},
+            {"id": "revenue-kpi", "title": "Tržby", "kind": "kpi", "sql": "SELECT SUM(net_amount_czk) AS revenue FROM invoices", "layout": {"row": 1, "width": 6}, "value_format": "currency_czk"},
+            {"id": "overdue-kpi", "title": "Po splatnosti", "kind": "kpi", "sql": "SELECT COUNT(*) AS overdue FROM invoices WHERE payment_status = 'Overdue'", "layout": {"row": 1, "width": 6}, "trend_direction": "lower_is_better"},
+        ]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        self.assert_no_errors()
+        self.assertTrue(any("Tržby rostou díky Enterprise." in item.value for item in self.app.markdown))
+        self.assertEqual(len(self.app.metric), 2)
+
+    def test_dashboard_editor_creates_local_kpi(self):
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        next(item for item in self.app.text_input if item.label == "Pokyn pro editor").input("Přidej KPI kolik faktur je po splatnosti")
+        next(item for item in self.app.button if item.label == "Navrhnout změnu").click().run()
+        next(item for item in self.app.button if item.label == "Potvrdit změnu").click().run()
+        self.assert_no_errors()
+        cards = json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"]
+        self.assertEqual(cards[-1]["kind"], "kpi")
+        self.assertEqual(cards[-1]["layout"]["width"], 4)
 
     def test_legacy_pages_migrate_once_without_becoming_dashboards(self):
         legacy = {
@@ -419,7 +523,7 @@ LIMIT 5""",
         self.assertTrue(any(item.label == "Můj dashboard" for item in self.app.button))
         self.assertFalse(any(item.label == "Finance" for item in self.app.button))
         saved = json.loads(self.store.read_text(encoding="utf-8"))
-        self.assertEqual(saved["version"], 3)
+        self.assertEqual(saved["version"], 4)
         self.assertEqual(len(saved["dashboards"]), 1)
         pages = saved["dashboards"][0]["pages"]
         self.assertEqual([page["id"] for page in pages], ["overview", "finance-page"])

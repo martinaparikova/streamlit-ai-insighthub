@@ -12,6 +12,7 @@ from analytics import (
     LLMRequestError,
     build_analytics_result,
     build_bounded_select_sql,
+    get_dashboard_editor_plan,
     get_llm_sql,
     get_local_plan,
     get_openai_api_key,
@@ -36,7 +37,10 @@ from dashboard import (
     page_name_exists,
     page_by_id,
     parse_editor_command,
+    previous_period_filters,
     remove_page,
+    restore_latest_dashboard_snapshot,
+    save_dashboard_snapshot,
 )
 import duckdb
 import numpy as np
@@ -56,11 +60,11 @@ FOREST, PAPER, PINK, GREEN, SLATE = "#0B3B2E", "#F7F7F7", "#C2185B", "#2F6B5A", 
 CREATE_NEW_DASHBOARD = "__create_new_dashboard__"
 NEW_DASHBOARD_OVERVIEW = "__new_dashboard_overview__"
 
-st.set_page_config(page_title="Insight Hub", page_icon="◒", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Biizy · BI easy", page_icon="✦", layout="wide", initial_sidebar_state="expanded")
 
 TEXT = {
     "cs": {
-        "language": "Jazyk rozhraní", "sidebar_subtitle": "ERP × CRM · lokální přehled dat",
+        "language": "Jazyk rozhraní", "sidebar_subtitle": "BI easy · ERP × CRM přehled",
         "workspace": "Pracovní plocha", "analytics_chat": "Analytický chat", "dashboards": "Dashboardy", "saved_chats": "Uložené chaty",
         "dashboard_name": "Název nového dashboardu", "create_dashboard": "Vytvořit nový",
         "save_dashboard": "Uložit", "save_chat": "Uložit chat", "chat_saved": "Chat byl uložen.",
@@ -70,6 +74,7 @@ TEXT = {
         "new_dashboard_placeholder": "Nový dashboard",
         "save_destination": "Uloží se do dashboardu <strong>{dashboard}</strong> na stránku <strong>{page}</strong> s názvem <strong>{title}</strong>.",
         "local_data": "Lokální data · DuckDB · SQL pouze pro čtení", "demo_data": "Demo data 2026",
+        "demo_data_notice": "Testovací prostředí: pracujete s fiktivními ukázkovými daty ERP a CRM společnosti.",
         "sql_trace": "SQL trace — zobrazit skutečně vykonaný dotaz", "sql_rows": "DuckDB · read-only SELECT · vráceno řádků: {rows}",
         "you_question": "VY · DOTAZ", "visualization": "VIZUALIZACE", "result": "VÝSLEDEK",
         "chart_details": "Graf · {kind} · {color} · {font} · zvýraznění: {highlight}", "no_highlight": "žádné",
@@ -107,7 +112,7 @@ TEXT = {
         "editor_instruction": "Pokyn pro editor", "editor_placeholder": "Uprav aktuálně vybranou kartu…", "apply_change": "Provést změnu", "generated": "Vygenerováno lokálně",
     },
     "en": {
-        "language": "Interface language", "sidebar_subtitle": "ERP × CRM · local data overview",
+        "language": "Interface language", "sidebar_subtitle": "BI easy · ERP × CRM overview",
         "workspace": "Workspace", "analytics_chat": "Analytics chat", "dashboards": "Dashboards", "saved_chats": "Saved chats",
         "dashboard_name": "New dashboard name", "create_dashboard": "Create new",
         "save_dashboard": "Save", "save_chat": "Save chat", "chat_saved": "Chat saved.",
@@ -117,6 +122,7 @@ TEXT = {
         "new_dashboard_placeholder": "New dashboard",
         "save_destination": "This will be saved to dashboard <strong>{dashboard}</strong>, page <strong>{page}</strong>, as <strong>{title}</strong>.",
         "local_data": "Local data · DuckDB · read-only SQL", "demo_data": "2026 demo data",
+        "demo_data_notice": "Test environment: you are working with fictional sample ERP and CRM data for a company.",
         "sql_trace": "SQL trace — show the executed query", "sql_rows": "DuckDB · read-only SELECT · rows returned: {rows}",
         "you_question": "YOU · QUESTION", "visualization": "VISUALIZATION", "result": "RESULT",
         "chart_details": "Chart · {kind} · {color} · {font} · highlight: {highlight}", "no_highlight": "none",
@@ -157,8 +163,21 @@ TEXT = {
 
 
 def t(key, **values):
-    language = st.session_state.get("language", "cs")
+    language = st.session_state.get("language", "en")
     return TEXT[language][key].format(**values)
+
+
+def render_language_switcher():
+    """Render compact flag controls and preserve the selected interface language."""
+    with st.container(horizontal=True, vertical_alignment="center", key="language-switcher"):
+        choose_czech = st.button("Čeština", key="language-cs", type="primary" if st.session_state.language == "cs" else "secondary")
+        choose_english = st.button("English", key="language-en", type="primary" if st.session_state.language == "en" else "secondary")
+    if choose_czech and st.session_state.language != "cs":
+        st.session_state.language = "cs"
+        st.rerun()
+    if choose_english and st.session_state.language != "en":
+        st.session_state.language = "en"
+        st.rerun()
 
 
 def make_fake_data():
@@ -446,6 +465,232 @@ def chart_figure(spec, data, show_title=True):
     return figure
 
 
+def format_card_value(value, spec):
+    if pd.isna(value):
+        return "—"
+    if not isinstance(value, (int, float, np.number)):
+        return str(value)
+    decimals = min(4, max(0, int(spec.get("decimal_places", 0))))
+    formatted = f"{float(value):,.{decimals}f}".replace(",", " ")
+    if spec.get("value_format") == "currency_czk":
+        return f"{formatted} Kč"
+    if spec.get("value_format") == "percent":
+        return f"{formatted} %"
+    return formatted
+
+
+def card_data(spec, page, filters=None):
+    active_filters = filters if filters is not None else page["filters"]
+    filtered_sql = apply_filters_to_sql(apply_time_granularity(spec["sql"], active_filters["period"]), active_filters)
+    return filtered_sql, apply_card_preferences(run_sql(filtered_sql), spec)
+
+
+def render_kpi(spec, page):
+    _, current = card_data(spec, page)
+    value = current.iloc[0, 0] if not current.empty and not current.columns.empty else None
+    previous_filters = previous_period_filters(page["filters"])
+    delta = None
+    if previous_filters:
+        _, previous = card_data(spec, page, previous_filters)
+        if not previous.empty and not previous.columns.empty and isinstance(value, (int, float, np.number)):
+            previous_value = previous.iloc[0, 0]
+            if isinstance(previous_value, (int, float, np.number)):
+                if previous_value == 0:
+                    delta = None
+                else:
+                    delta = (float(value) - float(previous_value)) / abs(float(previous_value))
+    if delta is None:
+        st.metric(spec["title"], format_card_value(value, spec), help="Bez srovnatelných dat pro předchozí období.")
+        return
+    delta_text = f"{delta:+.1%}".replace(".", ",") + f" {spec.get('comparison_label', 'oproti předchozímu období')}"
+    direction = spec.get("trend_direction", "higher_is_better")
+    delta_color = "off" if direction == "neutral" else ("normal" if direction == "higher_is_better" else "inverse")
+    st.metric(spec["title"], format_card_value(value, spec), delta=delta_text, delta_color=delta_color)
+
+
+def render_dashboard_card(spec, page, document, index):
+    with st.container(border=True, key=f"dashboard-card-{spec['id']}"):
+        if spec["kind"] == "text":
+            if spec.get("title") and spec["title"] != "Komentář":
+                st.subheader(spec["title"])
+            st.markdown(spec.get("text") or "")
+        elif spec["kind"] == "kpi":
+            render_kpi(spec, page)
+        else:
+            filtered_sql, data = card_data(spec, page)
+            if spec["kind"] == "table":
+                st.subheader(spec["title"])
+                st.dataframe(data, width="stretch", hide_index=True)
+            elif spec["kind"] == "metric":
+                value = data.iloc[0, 0] if not data.empty else None
+                st.metric(spec["title"], format_card_value(value, spec))
+            else:
+                st.plotly_chart(chart_figure(spec, data), width="stretch", key=f"chart-{page['id']}-{spec['id']}")
+            sql_card(filtered_sql, len(data))
+        controls = st.columns(4, gap="small")
+        with controls[0]:
+            if st.button(t("edit"), key=f"select-{spec['id']}", icon=":material/edit:", width="stretch"):
+                st.session_state.selected_dashboard_card = spec["id"]
+                st.rerun()
+        with controls[1]:
+            if st.button(t("move_up"), key=f"up-{spec['id']}", disabled=index == 0, icon=":material/arrow_upward:", width="stretch"):
+                page["cards"][index - 1], page["cards"][index] = page["cards"][index], page["cards"][index - 1]
+                save_dashboard(document)
+                st.rerun()
+        with controls[2]:
+            if st.button(t("move_down"), key=f"down-{spec['id']}", disabled=index == len(page["cards"]) - 1, icon=":material/arrow_downward:", width="stretch"):
+                page["cards"][index + 1], page["cards"][index] = page["cards"][index], page["cards"][index + 1]
+                save_dashboard(document)
+                st.rerun()
+        with controls[3]:
+            if st.button(t("remove"), key=f"delete-{spec['id']}", icon=":material/delete:", width="stretch"):
+                page["cards"].pop(index)
+                save_dashboard(document)
+                st.rerun()
+
+
+def render_dashboard_grid(page, document):
+    grouped = {}
+    for index, card in enumerate(page["cards"]):
+        spec = normalize_card(card)
+        page["cards"][index] = spec
+        grouped.setdefault(spec["layout"]["row"], []).append((index, spec))
+    for row in sorted(grouped):
+        items = grouped[row]
+        visual_rows, current, used = [], [], 0
+        for item in items:
+            width = item[1]["layout"]["width"]
+            if current and used + width > 12:
+                visual_rows.append(current)
+                current, used = [], 0
+            current.append(item)
+            used += width
+        if current:
+            visual_rows.append(current)
+        for visual_row in visual_rows:
+            columns = st.columns([spec["layout"]["width"] for _, spec in visual_row], gap="medium")
+            for column, (index, spec) in zip(columns, visual_row):
+                with column:
+                    render_dashboard_card(spec, page, document, index)
+
+
+def create_kpi_from_instruction(instruction, page):
+    """Create a one-value KPI query through the same safe path as Analytics chat."""
+    question = re.sub(r"^(?:přidej|pridej|add)\s+(?:kpi|metriku|metric)\s*", "", instruction, flags=re.I).strip(" .:")
+    if not question:
+        return None, "Upřesněte, jakou KPI metriku chcete přidat."
+    try:
+        if get_openai_api_key():
+            generated = get_llm_sql(question, [])
+            if not generated or generated.get("clarification"):
+                return None, generated.get("clarification") if generated else "KPI dotaz se nepodařilo připravit."
+            sql = build_bounded_select_sql(generated["sql"], get_connection(), row_limit=1)
+        else:
+            plan = get_local_plan(question)
+            if not plan:
+                return None, "Tuto KPI v lokálním režimu neznám. Zkuste ji vytvořit s nastaveným OpenAI API klíčem."
+            sql = build_analytics_result(plan)["sql"]
+        data = run_sql(sql)
+    except (LLMRequestError, ValueError, duckdb.Error) as error:
+        return None, f"KPI dotaz se nepodařilo bezpečně vytvořit: {error}"
+    if data.shape != (1, 1) or not pd.api.types.is_numeric_dtype(data.iloc[:, 0]):
+        return None, "KPI musí vrátit právě jednu číselnou hodnotu. Zkuste zadání upřesnit."
+    return normalize_card({
+        "title": question[:1].upper() + question[1:], "kind": "kpi", "sql": sql,
+        "x": data.columns[0], "y": data.columns[0],
+        "layout": {"row": next((card["layout"]["row"] for card in reversed(page["cards"]) if "layout" in card), -1) + 1, "width": 4},
+        "value_format": "currency_czk" if any(term in question.lower() for term in ("tržb", "trzb", "revenue", "částk", "castk", "amount", "marž", "marz")) else "number",
+    }), None
+
+
+def local_editor_plan(command, dashboard, page, selected_card_id):
+    """Keep a small deterministic fallback when no API key is configured."""
+    updated, notice = parse_editor_command(dashboard, page["id"], command, selected_card_id)
+    if notice.startswith("Pokyn jsem nerozpoznal"):
+        return None, notice
+    candidate = deepcopy(dashboard)
+    candidate["pages"] = updated["pages"]
+    return {"mode": "local", "command": command, "dashboard": candidate, "summary": notice}, None
+
+
+def dashboard_editor_context(page, selected):
+    return {
+        "page": {"id": page["id"], "name": page["name"]},
+        "selected_card": {"id": selected["id"], "title": selected["title"], "kind": selected["kind"]} if selected else None,
+        "cards": [{"id": card["id"], "title": card["title"], "kind": card["kind"]} for card in page["cards"]],
+    }
+
+
+def plan_ai_dashboard_edit(command, dashboard, page, selected):
+    """Turn a safe AI plan into a pending, reviewable dashboard mutation."""
+    plan = get_dashboard_editor_plan(command, dashboard_editor_context(page, selected))
+    if plan is None:
+        return local_editor_plan(command, dashboard, page, selected["id"] if selected else None)
+    if plan["action"] == "clarify":
+        return None, plan.get("clarification") or "Upřesněte prosím požadovanou změnu."
+
+    candidate = deepcopy(dashboard)
+    target_page = page_by_id(candidate, page["id"])
+    target = next((card for card in target_page["cards"] if selected and card["id"] == selected["id"]), None)
+    if plan["action"] == "update_selected":
+        if not target:
+            return None, "Nejdřív vyberte kartu tlačítkem „Upravit“."
+        changes = []
+        if plan.get("title"):
+            target["title"] = plan["title"].strip()[:120]
+            changes.append("název")
+        if plan.get("chart_kind"):
+            target["kind"] = plan["chart_kind"]
+            changes.append(f"typ grafu: {plan['chart_kind']}")
+        if plan.get("color"):
+            target["color"] = plan["color"]
+            changes.append("barva")
+        if plan.get("layout_width"):
+            target["layout"]["width"] = plan["layout_width"]
+            changes.append("šířka")
+        if not changes:
+            return None, "AI nenašla žádnou bezpečnou změnu k provedení."
+        summary = f"Upravím kartu „{target['title']}“: {', '.join(changes)}."
+    elif plan["action"] == "add_text":
+        text = (plan.get("text") or "").strip()
+        if not text:
+            return None, "Chybí text komentáře."
+        target_page["cards"].append(normalize_card({"title": plan.get("title") or "Komentář", "kind": "text", "text": text}))
+        summary = "Přidám textový komentář na dashboard."
+    elif plan["action"] == "add_page":
+        name = (plan.get("title") or "").strip()
+        if not name:
+            return None, "Chybí název nové stránky."
+        add_page(candidate, name)
+        summary = f"Přidám stránku „{name}“."
+    elif plan["action"] == "add_kpi":
+        request = (plan.get("query_request") or command).strip()
+        kpi, error = create_kpi_from_instruction(f"Přidej KPI {request}", target_page)
+        if error:
+            return None, error
+        if plan.get("title"):
+            kpi["title"] = plan["title"].strip()[:120]
+        if plan.get("layout_width"):
+            kpi["layout"]["width"] = plan["layout_width"]
+        target_page["cards"].append(kpi)
+        summary = f"Přidám KPI „{kpi['title']}“ s porovnáním předchozího období."
+    else:
+        return None, "AI navrhla nepodporovanou změnu."
+    return {"mode": "ai", "command": command, "dashboard": candidate, "summary": summary}, None
+
+
+def plan_dashboard_editor_command(command, dashboard, page, selected):
+    if re.match(r"^(?:přidej|pridej|add)\s+(?:kpi|metriku|metric)\b", command.strip(), flags=re.I) and not get_openai_api_key():
+        candidate = deepcopy(dashboard)
+        target_page = page_by_id(candidate, page["id"])
+        kpi, error = create_kpi_from_instruction(command, target_page)
+        if error:
+            return None, error
+        target_page["cards"].append(kpi)
+        return {"mode": "local", "command": command, "dashboard": candidate, "summary": f"Přidám KPI „{kpi['title']}“ s porovnáním předchozího období."}, None
+    return plan_ai_dashboard_edit(command, dashboard, page, selected)
+
+
 def load_dashboard():
     if not STORE.exists():
         document = normalize_workspace(None)
@@ -502,13 +747,30 @@ def pdf_report(page):
     document = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.4 * cm, leftMargin=1.4 * cm, topMargin=1.3 * cm)
     styles = getSampleStyleSheet()
     story = [
-        Paragraph(f"Insight Hub — {page['name']}", styles["Title"]),
+        Paragraph(f"Biizy — {page['name']}", styles["Title"]),
         Paragraph(f"{t('generated')}: {date.today().strftime('%d.%m.%Y')}", styles["Normal"]),
         Spacer(1, 14),
     ]
     for number, spec in enumerate(page["cards"], 1):
+        spec = normalize_card(spec)
+        if spec["kind"] == "text":
+            story.extend([
+                Paragraph(f"{number}. {spec['title']}", styles["Heading2"]),
+                Paragraph(escape(spec.get("text") or "").replace("\n", "<br/>"), styles["Normal"]),
+                Spacer(1, 12),
+            ])
+            continue
         filtered_sql = apply_filters_to_sql(apply_time_granularity(spec["sql"], page["filters"]["period"]), page["filters"])
         data = apply_card_preferences(run_sql(filtered_sql), spec)
+        if spec["kind"] == "kpi":
+            value = data.iloc[0, 0] if not data.empty else None
+            story.extend([
+                Paragraph(f"{number}. {spec['title']}", styles["Heading2"]),
+                Paragraph(format_card_value(value, spec), styles["Title"]),
+                Paragraph(spec.get("comparison_label", "oproti předchozímu období"), styles["Normal"]),
+                Spacer(1, 6), Paragraph("SQL: " + spec["sql"].replace("\n", " "), styles["Code"]), Spacer(1, 15),
+            ])
+            continue
         story.extend([
             Paragraph(f"{number}. {spec['title']}", styles["Heading2"]),
             Paragraph(f"Typ: {spec['kind']} | Font: {spec['font']} | Barva: {spec['color']}", styles["Normal"]),
@@ -548,6 +810,35 @@ def style_app():
         [data-testid='stSidebar'] [data-testid='stCaptionContainer'],
         [data-testid='stSidebar'] [data-testid='stCaptionContainer'] p {{ color: #C8DBD2; }}
         [data-testid='stSidebar'] h1 {{ color: white; font-size: 1.65rem !important; }}
+        .biizy-brand {{ display: flex; align-items: center; gap: 1.2rem; margin: .35rem 0 1.25rem; }}
+        .biizy-mark {{ width: 4rem; height: 4rem; flex: 0 0 auto; filter: drop-shadow(0 5px 10px rgba(0,0,0,.2)); }}
+        .biizy-name {{ color: white; font-size: 2.95rem; font-weight: 800; letter-spacing: -.095em; line-height: .84; text-shadow: 0 2px 12px rgba(0,0,0,.16); }}
+        .biizy-tagline {{ color: #9FE2CF; font-size: .78rem; font-weight: 800; letter-spacing: .25em; line-height: 1.4; margin-top: .72rem; text-transform: uppercase; }}
+        .st-key-language-switcher {{ display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: .25rem; align-items: center; margin: 0; }}
+        .st-key-language-cs, .st-key-language-en {{ margin: 0; }}
+        .st-key-language-cs button, .st-key-language-en button {{
+            position: relative; width: 3rem !important; min-width: 3rem !important; min-height: 2rem; height: 2rem;
+            padding: 0 !important; border: 2px solid #B6C6D1 !important;
+            border-radius: 5px !important; background-color: #012169 !important; background-position: center !important;
+            background-repeat: no-repeat !important; background-size: 100% 100% !important; overflow: visible;
+        }}
+        .st-key-language-cs button {{
+            background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzIDIiPjxwYXRoIGZpbGw9IiNmZmYiIGQ9Ik0wIDBoM3YySDB6Ii8+PHBhdGggZmlsbD0iI2Q3MTQxYSIgZD0iTTAgMWgzdjFIMHoiLz48cGF0aCBmaWxsPSIjMTE0NTdlIiBkPSJNMCAwdjJsMS41LTF6Ii8+PC9zdmc+") !important;
+        }}
+        .st-key-language-en button {{
+            background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2MCAzMCI+PHJlY3Qgd2lkdGg9IjYwIiBoZWlnaHQ9IjMwIiBmaWxsPSIjMDEyMTY5Ii8+PHBhdGggZD0iTTAgMCA2MCAzME02MCAwIDAgMzAiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2Ii8+PHBhdGggZD0iTTAgMCA2MCAzME02MCAwIDAgMzAiIHN0cm9rZT0iI2M4MTAyZSIgc3Ryb2tlLXdpZHRoPSIyLjUiLz48cGF0aCBkPSJNMzAgMHYzME0wIDE1aDYwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMTAiLz48cGF0aCBkPSJNMzAgMHYzME0wIDE1aDYwIiBzdHJva2U9IiNjODEwMmUiIHN0cm9rZS13aWR0aD0iNiIvPjwvc3ZnPg==") !important;
+        }}
+        .st-key-language-cs button p, .st-key-language-en button p {{ font-size: 0 !important; }}
+        .st-key-language-cs button:hover::after, .st-key-language-en button:hover::after {{
+            position: absolute; z-index: 1000; top: calc(100% + .45rem); left: 50%; transform: translateX(-50%);
+            padding: .32rem .5rem; border-radius: 5px; color: white; background: #102A43; font-size: .72rem; font-weight: 700;
+            line-height: 1; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.24); pointer-events: none;
+        }}
+        .st-key-language-cs button:hover::after {{ content: 'Čeština'; }}
+        .st-key-language-en button:hover::after {{ content: 'English'; }}
+        .st-key-language-cs button[kind^='primary'], .st-key-language-en button[kind^='primary'] {{
+            border-color: #FFFFFF !important; box-shadow: 0 0 0 3px #9FE2CF, 0 5px 12px rgba(0,0,0,.2) !important;
+        }}
         [data-testid='stSidebar'] [role='radiogroup'] {{ gap: .4rem; }}
         [data-testid='stSidebar'] [role='radiogroup'] label {{ border-radius: 10px; padding: .65rem .75rem; color: white; }}
         [data-testid='stSidebar'] [role='radiogroup'] label p {{ color: white; }}
@@ -585,6 +876,12 @@ def style_app():
         [data-testid='stChatMessage'] h3 {{ font-size: 1.35rem; padding-top: 0; }}
         [data-testid='stChatMessage'] [data-testid='stMetric'] {{ background: rgba(255,255,255,.65); }}
         [data-testid='stChatMessage'] [data-testid='stExpander'] {{ background: rgba(255,255,255,.5); }}
+        .demo-data-notice {{
+            display: flex; align-items: center; gap: .8rem; margin: .15rem 0 1.5rem; padding: .9rem 1.1rem;
+            color: #29485A; background: #EEF7F5; border: 1px solid #B9E2D7; border-radius: 10px; font-size: .98rem;
+            font-weight: 500; line-height: 1.45; box-shadow: 0 1px 0 rgba(14,116,144,.05);
+        }}
+        .demo-data-notice svg {{ width: 1.4rem; height: 1.4rem; flex: 0 0 auto; }}
         .dashboard-filter-note {{ color: var(--muted); font-size: .85rem; margin-top: .25rem; }}
         .st-key-dashboard-filters [data-testid='stHorizontalBlock'] {{
             display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
@@ -852,7 +1149,7 @@ def render_chat_item(item, index):
             if result["kind"] == "bar":
                 st.plotly_chart(chart_figure(spec, data, show_title=False), use_container_width=True, key=f"answer-chart-{index}")
             st.dataframe(data, use_container_width=True, hide_index=True)
-            st.download_button(t("download_csv"), data.to_csv(index=False).encode("utf-8-sig"), f"insight-{index}.csv", "text/csv", key=f"download-{index}", icon=":material/download:")
+            st.download_button(t("download_csv"), data.to_csv(index=False).encode("utf-8-sig"), f"biizy-{index}.csv", "text/csv", key=f"download-{index}", icon=":material/download:")
 
         add_open_key = "dashboard_add_item_index"
         if st.button(t("add_dashboard"), key=f"add-dashboard-{index}", type="primary", icon=":material/dashboard_customize:"):
@@ -1079,7 +1376,7 @@ def render_dashboard(document, dashboard):
         st.header(page["name"])
         st.caption(t("filters_apply"))
     with action_column:
-        st.download_button(t("export_pdf"), pdf_report(page), f"insight-hub-{page['id']}.pdf", "application/pdf", type="primary", icon=":material/picture_as_pdf:", width="stretch")
+        st.download_button(t("export_pdf"), pdf_report(page), f"biizy-{page['id']}.pdf", "application/pdf", type="primary", icon=":material/picture_as_pdf:", width="stretch")
         if len(dashboard["pages"]) > 1 and st.button(t("delete_page"), icon=":material/delete:", width="stretch"):
             remove_page(dashboard, page["id"])
             save_dashboard(document)
@@ -1107,45 +1404,24 @@ def render_dashboard(document, dashboard):
 
     if not page["cards"]:
         st.info(t("empty_dashboard"))
+    else:
+        render_dashboard_grid(page, document)
     selected_card_id = st.session_state.get("selected_dashboard_card")
-    for index, spec in enumerate(page["cards"]):
-        spec = normalize_card(spec)
-        page["cards"][index] = spec
-        with st.container(border=True, key=f"dashboard-card-{spec['id']}"):
-            st.caption(t("card", number=index + 1))
-            filtered_sql = apply_filters_to_sql(apply_time_granularity(spec["sql"], page["filters"]["period"]), page["filters"])
-            data = apply_card_preferences(run_sql(filtered_sql), spec)
-            if spec["kind"] == "table":
-                st.subheader(spec["title"])
-                st.dataframe(data, use_container_width=True, hide_index=True)
-            elif spec["kind"] == "metric":
-                st.metric(spec["title"], f"{float(data.iloc[0, 0]):,.0f}".replace(",", " "))
-            else:
-                st.plotly_chart(chart_figure(spec, data), use_container_width=True, key=f"chart-{page['id']}-{spec['id']}")
-            sql_card(filtered_sql, len(data))
-            edit_column, up_column, down_column, remove_column = st.columns(4, gap="small")
-            with edit_column:
-                if st.button(t("edit"), key=f"select-{spec['id']}", icon=":material/edit:", use_container_width=True):
-                    st.session_state.selected_dashboard_card = spec["id"]
-                    st.rerun()
-            with up_column:
-                if st.button(t("move_up"), key=f"up-{spec['id']}", disabled=index == 0, icon=":material/arrow_upward:", use_container_width=True):
-                    page["cards"][index - 1], page["cards"][index] = page["cards"][index], page["cards"][index - 1]
-                    save_dashboard(document)
-                    st.rerun()
-            with down_column:
-                if st.button(t("move_down"), key=f"down-{spec['id']}", disabled=index == len(page["cards"]) - 1, icon=":material/arrow_downward:", use_container_width=True):
-                    page["cards"][index + 1], page["cards"][index] = page["cards"][index], page["cards"][index + 1]
-                    save_dashboard(document)
-                    st.rerun()
-            with remove_column:
-                if st.button(t("remove"), key=f"delete-{spec['id']}", icon=":material/delete:", use_container_width=True):
-                    page["cards"].pop(index)
-                    save_dashboard(document)
-                    st.rerun()
 
     selected = next((card for card in page["cards"] if card["id"] == selected_card_id), None)
     st.divider()
+    history_column, undo_column = st.columns([4, 1], vertical_alignment="center")
+    with history_column:
+        versions = [item for item in document.get("dashboard_history", []) if item.get("dashboard", {}).get("id") == dashboard["id"]]
+        st.caption(f"Historie editoru: {len(versions)} uložených verzí (max. 30).")
+    with undo_column:
+        if st.button("Vrátit poslední změnu", icon=":material/undo:", disabled=not versions, width="stretch"):
+            restored = restore_latest_dashboard_snapshot(document, dashboard["id"])
+            if restored:
+                st.session_state.selected_dashboard_card = None
+                st.session_state.dashboard_editor_notice = "Poslední potvrzená změna byla vrácena."
+                save_dashboard(document)
+                st.rerun()
     editor_column, chat_column = st.columns([1, 1], gap="large")
     with editor_column:
         st.markdown("### " + t("edit_card"))
@@ -1157,42 +1433,84 @@ def render_dashboard(document, dashboard):
                 kind = st.selectbox(t("chart_type"), CHART_KINDS, index=CHART_KINDS.index(selected["kind"]))
                 color = st.selectbox(t("color"), COLORS, index=COLORS.index(selected["color"]) if selected["color"] in COLORS else 0)
                 sort_order = st.selectbox(t("sort"), ["original", "ascending", "descending"], index=["original", "ascending", "descending"].index(selected.get("sort_order", "original")))
+                layout_width = st.selectbox("Šířka bloku", [12, 6, 4, 3], index=[12, 6, 4, 3].index(selected["layout"]["width"]))
+                layout_row = st.number_input("Řádek rozvržení", min_value=0, value=selected["layout"]["row"], step=1)
+                text = st.text_area("Text komentáře", selected.get("text", "")) if selected["kind"] == "text" else selected.get("text", "")
+                decimals = st.number_input("Desetinná místa", min_value=0, max_value=4, value=int(selected.get("decimal_places", 0)), step=1)
+                value_format = st.selectbox("Formát hodnoty", ["number", "currency_czk", "percent"], index=["number", "currency_czk", "percent"].index(selected.get("value_format", "number")))
+                trend_direction = st.selectbox("Vyhodnocení trendu", ["higher_is_better", "lower_is_better", "neutral"], index=["higher_is_better", "lower_is_better", "neutral"].index(selected.get("trend_direction", "higher_is_better")))
                 if st.form_submit_button(t("save_changes"), type="primary", icon=":material/save:", use_container_width=True):
-                    selected.update({"title": title.strip() or selected["title"], "kind": kind, "color": color, "sort_order": sort_order})
+                    save_dashboard_snapshot(document, dashboard, f"Ruční úprava karty „{selected['title']}“")
+                    selected.update({
+                        "title": title.strip() or selected["title"], "kind": kind, "color": color,
+                        "sort_order": sort_order, "text": text, "decimal_places": decimals,
+                        "value_format": value_format, "trend_direction": trend_direction,
+                        "layout": {"row": int(layout_row), "width": layout_width},
+                    })
                     save_dashboard(document)
                     st.success(t("card_updated"))
                     st.rerun()
     with chat_column:
         st.markdown("### " + t("dashboard_editor"))
         st.caption(t("editor_example"))
+        if selected:
+            st.info(f"Aktuálně vybraná karta: **{selected['title']}**")
+        else:
+            st.warning("Nejdřív u požadované karty klikněte na „Upravit“. Pokyny pro stránku a přidání bloků fungují i bez výběru.")
         with st.form(f"dashboard-editor-{page['id']}", clear_on_submit=True):
             command = st.text_input(t("editor_instruction"), placeholder=t("editor_placeholder"))
-            submitted = st.form_submit_button(t("apply_change"), type="primary", icon=":material/check:", use_container_width=True)
+            submitted = st.form_submit_button("Navrhnout změnu", type="primary", icon=":material/auto_awesome:", use_container_width=True)
         if submitted:
-            updated_dashboard, notice = parse_editor_command(dashboard, page["id"], command, selected_card_id)
-            dashboard["pages"] = updated_dashboard["pages"]
-            save_dashboard(document)
-            st.session_state.dashboard_editor_notice = notice
-            if command.lower().strip().startswith(("přidej stránku", "pridej stranku", "new page")):
-                st.session_state.active_dashboard_page = dashboard["pages"][-1]["id"]
-            st.rerun()
+            pending, error = plan_dashboard_editor_command(command, dashboard, page, selected)
+            if error:
+                st.error(error)
+            else:
+                st.session_state.pending_dashboard_edit = pending
+                st.rerun()
+        pending = st.session_state.get("pending_dashboard_edit")
+        if pending:
+            with st.container(border=True, key="dashboard-edit-preview"):
+                st.markdown("#### Náhled navržené změny")
+                st.write(pending["summary"])
+                st.caption("Změna se uloží až po potvrzení. Před uložením vznikne verze pro Undo.")
+                confirm_column, cancel_column = st.columns(2, gap="small")
+                with confirm_column:
+                    if st.button("Potvrdit změnu", type="primary", icon=":material/check:", width="stretch"):
+                        save_dashboard_snapshot(document, dashboard, pending["summary"])
+                        replacement = pending["dashboard"]
+                        dashboard["name"] = replacement["name"]
+                        dashboard["pages"] = replacement["pages"]
+                        if re.match(r"^(?:přidej|pridej|add)\s+(?:stránku|stranku|page)\b", pending["command"].strip(), flags=re.I):
+                            st.session_state.active_dashboard_page = dashboard["pages"][-1]["id"]
+                        save_dashboard(document)
+                        st.session_state.pending_dashboard_edit = None
+                        st.session_state.dashboard_editor_notice = pending["summary"]
+                        st.rerun()
+                with cancel_column:
+                    if st.button("Zahodit návrh", icon=":material/close:", width="stretch"):
+                        st.session_state.pending_dashboard_edit = None
+                        st.rerun()
         if st.session_state.get("dashboard_editor_notice"):
             st.success(st.session_state.dashboard_editor_notice)
             st.session_state.dashboard_editor_notice = None
 
 
 style_app()
+if "language" not in st.session_state:
+    st.session_state.language = "en"
 document = load_dashboard()
 with st.sidebar:
-    st.markdown("# ◒ Insight Hub")
-    st.caption(t("sidebar_subtitle"))
-    language_label = st.selectbox(
-        t("language"),
-        ["Čeština", "English"],
-        index=0 if st.session_state.get("language", "cs") == "cs" else 1,
-        key="language_selector",
+    st.markdown(
+        """<div class='biizy-brand'>
+        <svg class='biizy-mark' viewBox='0 0 48 48' aria-hidden='true'>
+          <circle cx='24' cy='24' r='22' fill='#DDF5EE'/>
+          <path d='M15 28 L23 18 L33 25' fill='none' stroke='#0B3B2E' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/>
+          <circle cx='15' cy='28' r='4' fill='#C2185B'/><circle cx='23' cy='18' r='4' fill='#0B3B2E'/><circle cx='33' cy='25' r='4' fill='#2F6B5A'/>
+        </svg>
+        <div><div class='biizy-name'>Biizy</div><div class='biizy-tagline'>BI easy</div></div>
+        </div>""",
+        unsafe_allow_html=True,
     )
-    st.session_state.language = "cs" if language_label == "Čeština" else "en"
     st.caption(t("workspace"))
     if st.button(t("analytics_chat"), icon=":material/chat:", use_container_width=True):
         st.session_state.workspace_view = "chat"
@@ -1273,6 +1591,17 @@ with st.sidebar:
     st.divider()
     st.caption(t("local_data"))
     st.caption(t("demo_data"))
+
+_, language_column = st.columns([7, 2], vertical_alignment="center")
+with language_column:
+    render_language_switcher()
+
+st.markdown(
+    f"""<div class='demo-data-notice'>
+    <svg viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3 2.8 19h18.4L12 3Z' fill='#0E7490'/><path d='M12 8v5.5M12 16.5v.1' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>
+    <span>{escape(t('demo_data_notice'))}</span></div>""",
+    unsafe_allow_html=True,
+)
 
 if st.session_state.get("workspace_view") == "dashboard":
     active_dashboard_id = st.session_state.get("active_dashboard_id")

@@ -14,12 +14,26 @@ from analytics import (
     get_llm_sql,
     get_local_plan,
     get_openai_api_key,
+    normalize_dashboard_editor_plan,
     normalize_plan,
     validate_read_only_sql,
 )
 
 
 class AnalyticsPlanTests(unittest.TestCase):
+    def test_dashboard_editor_plan_rejects_unsafe_or_unknown_fields(self):
+        with self.assertRaises(ValueError):
+            normalize_dashboard_editor_plan({"action": "run_python", "title": "bad"})
+        with self.assertRaises(ValueError):
+            normalize_dashboard_editor_plan({"action": "update_selected", "chart_kind": "scatter"})
+
+        plan = normalize_dashboard_editor_plan({
+            "action": "update_selected", "title": " Overdue invoices ",
+            "chart_kind": "table", "color": "#C2185B", "layout_width": 6,
+        })
+
+        self.assertEqual(plan["title"], "Overdue invoices")
+        self.assertEqual(plan["chart_kind"], "table")
     def test_overdue_count_is_a_single_metric(self):
         result = build_analytics_result({"intent": "overdue_invoice_count", "segment": None, "city": None, "limit": None, "sort_order": "highest"})
         self.assertEqual(result["kind"], "metric")

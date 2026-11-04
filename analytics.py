@@ -40,6 +40,28 @@ ANALYTICS_SQL_TOOL = {
     },
 }
 
+DASHBOARD_EDITOR_TOOL = {
+    "type": "function",
+    "name": "submit_dashboard_edit_plan",
+    "description": "Return one safe, structured dashboard edit plan or a clarification.",
+    "strict": True,
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "action": {"type": "string", "enum": ["update_selected", "add_text", "add_page", "add_kpi", "clarify"]},
+            "title": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "chart_kind": {"anyOf": [{"type": "string", "enum": ["bar", "line", "area", "pie", "table", "metric"]}, {"type": "null"}]},
+            "color": {"anyOf": [{"type": "string", "enum": ["#0B3B2E", "#C2185B", "#4B5563"]}, {"type": "null"}]},
+            "layout_width": {"anyOf": [{"type": "integer", "enum": [3, 4, 6, 12]}, {"type": "null"}]},
+            "text": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "query_request": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "clarification": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        },
+        "required": ["action", "title", "chart_kind", "color", "layout_width", "text", "query_request", "clarification"],
+    },
+}
+
 ANALYTICS_SCHEMA = """Available read-only DuckDB relations:
 - companies(company_id, company_name, segment, city, account_manager)
 - invoices(invoice_id, company_id, product, invoice_date, due_date, net_amount_czk, payment_status, paid_date)
@@ -192,6 +214,56 @@ a clarification instead if the question cannot be answered."""
                 raise ValueError("The model returned an empty clarification.")
             return {"sql": sql, "clarification": clarification}
     raise LLMRequestError("The model did not return an analytics query.")
+
+
+def get_dashboard_editor_plan(instruction, context):
+    """Ask the model for one constrained dashboard-edit action, never executable code."""
+    api_key = get_openai_api_key()
+    if not api_key:
+        return None
+    from openai import APIError, OpenAI
+
+    instructions = """You convert a Czech or English dashboard request into exactly one safe action.
+You must use the provided tool. Never emit Python, HTML, JavaScript, SQL, or multiple actions.
+Use update_selected only when a selected card exists. Use add_kpi only for a new one-value KPI;
+put its human-language analytical request in query_request. Use clarify when the target is unclear.
+For a rename such as 'Uprav název tabulky na X', action is update_selected and title is X; do
+not change chart_kind unless the user explicitly asks to change the chart type."""
+    try:
+        response = OpenAI(api_key=api_key).responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+            instructions=instructions,
+            input=json.dumps({"instruction": instruction, "context": context}, ensure_ascii=False),
+            tools=[DASHBOARD_EDITOR_TOOL],
+            tool_choice={"type": "function", "name": "submit_dashboard_edit_plan"},
+        )
+    except APIError as error:
+        raise LLMRequestError("The OpenAI dashboard-editor request failed.") from error
+    for item in response.output:
+        if item.type == "function_call" and item.name == "submit_dashboard_edit_plan":
+            return normalize_dashboard_editor_plan(json.loads(item.arguments))
+    raise LLMRequestError("The model did not return a dashboard edit plan.")
+
+
+def normalize_dashboard_editor_plan(plan):
+    """Apply the editor allowlist again on the server, independent of SDK schemas."""
+    if not isinstance(plan, dict) or plan.get("action") not in {"update_selected", "add_text", "add_page", "add_kpi", "clarify"}:
+        raise ValueError("The dashboard editor returned an unsupported action.")
+    normalized = {key: plan.get(key) for key in (
+        "action", "title", "chart_kind", "color", "layout_width", "text", "query_request", "clarification",
+    )}
+    for key in ("title", "text", "query_request", "clarification"):
+        value = normalized[key]
+        if value is not None and (not isinstance(value, str) or len(value.strip()) > 2000):
+            raise ValueError(f"The dashboard editor returned an invalid {key}.")
+        normalized[key] = value.strip() if isinstance(value, str) else None
+    if normalized["chart_kind"] is not None and normalized["chart_kind"] not in {"bar", "line", "area", "pie", "table", "metric"}:
+        raise ValueError("The dashboard editor returned an invalid chart kind.")
+    if normalized["color"] is not None and normalized["color"] not in {"#0B3B2E", "#C2185B", "#4B5563"}:
+        raise ValueError("The dashboard editor returned an invalid color.")
+    if normalized["layout_width"] is not None and normalized["layout_width"] not in {3, 4, 6, 12}:
+        raise ValueError("The dashboard editor returned an invalid layout width.")
+    return normalized
 
 
 def normalize_plan(plan):

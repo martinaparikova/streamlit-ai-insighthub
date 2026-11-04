@@ -14,6 +14,9 @@ from dashboard import (
     normalize_workspace,
     page_name_exists,
     parse_editor_command,
+    previous_period_filters,
+    restore_latest_dashboard_snapshot,
+    save_dashboard_snapshot,
 )
 
 
@@ -49,6 +52,78 @@ class DashboardTests(unittest.TestCase):
         card_id = page["cards"][0]["id"]
         updated, _ = parse_editor_command(document, page["id"], "Změň graf na line", card_id)
         self.assertEqual(updated["pages"][0]["cards"][0]["kind"], "line")
+
+    def test_editor_changes_pie_color_without_treating_czech_barvy_as_bar_chart(self):
+        document = normalize_dashboard([{"title": "Revenue by segment", "kind": "pie", "sql": "SELECT 1", "x": "x", "y": "y"}])
+        page = document["pages"][0]
+        card_id = page["cards"][0]["id"]
+
+        updated, notice = parse_editor_command(document, page["id"], "Změň barvy v koláči na zelené", card_id)
+        card = updated["pages"][0]["cards"][0]
+
+        self.assertEqual(card["kind"], "pie")
+        self.assertEqual(card["color"], "#0B3B2E")
+        self.assertIn("barva", notice)
+
+    def test_editor_applies_chart_type_and_color_from_one_instruction(self):
+        document = normalize_dashboard([{"title": "Revenue", "kind": "bar", "sql": "SELECT 1", "x": "x", "y": "y"}])
+        page = document["pages"][0]
+        card_id = page["cards"][0]["id"]
+
+        updated, _ = parse_editor_command(document, page["id"], "Změň graf na pie a nastav růžovou", card_id)
+        card = updated["pages"][0]["cards"][0]
+
+        self.assertEqual(card["kind"], "pie")
+        self.assertEqual(card["color"], "#C2185B")
+
+    def test_editor_renames_selected_card_without_changing_it_to_a_table(self):
+        document = normalize_dashboard([{"title": "Lowest-revenue products", "kind": "bar", "sql": "SELECT 1", "x": "x", "y": "y"}])
+        page = document["pages"][0]
+        card_id = page["cards"][0]["id"]
+
+        updated, notice = parse_editor_command(document, page["id"], "Uprav název tabulky na Number of invoices overdue", card_id)
+        card = updated["pages"][0]["cards"][0]
+
+        self.assertEqual(card["title"], "Number of invoices overdue")
+        self.assertEqual(card["kind"], "bar")
+        self.assertIn("název", notice)
+
+    def test_editor_changes_type_only_for_explicit_change_chart_command(self):
+        document = normalize_dashboard([{"title": "Revenue", "kind": "bar", "sql": "SELECT 1", "x": "x", "y": "y"}])
+        page = document["pages"][0]
+        card_id = page["cards"][0]["id"]
+
+        updated, _ = parse_editor_command(document, page["id"], "Změň graf na tabulku", card_id)
+
+        self.assertEqual(updated["pages"][0]["cards"][0]["kind"], "table")
+
+    def test_legacy_cards_receive_full_width_layout_rows(self):
+        document = normalize_dashboard([
+            {"title": "Revenue", "kind": "bar", "sql": "SELECT 1", "x": "x", "y": "y"},
+            {"title": "Pipeline", "kind": "bar", "sql": "SELECT 2", "x": "x", "y": "y"},
+        ])
+
+        layouts = [card["layout"] for card in document["pages"][0]["cards"]]
+        self.assertEqual(layouts, [{"row": 0, "width": 12}, {"row": 1, "width": 12}])
+
+    def test_editor_adds_text_block_and_changes_selected_card_width(self):
+        document = normalize_dashboard([{"title": "Revenue", "kind": "bar", "sql": "SELECT 1", "x": "x", "y": "y"}])
+        page = document["pages"][0]
+        card_id = page["cards"][0]["id"]
+
+        updated, _ = parse_editor_command(document, page["id"], "Přidej komentář: Tržby rostou díky Enterprise.")
+        text_card = updated["pages"][0]["cards"][-1]
+        self.assertEqual(text_card["kind"], "text")
+        self.assertEqual(text_card["text"], "Tržby rostou díky Enterprise.")
+
+        updated, _ = parse_editor_command(document, page["id"], "Dej kartu vedle jiné karty", card_id)
+        self.assertEqual(updated["pages"][0]["cards"][0]["layout"]["width"], 6)
+
+    def test_previous_period_has_the_same_inclusive_length(self):
+        previous = previous_period_filters({"date_from": "2026-02-01", "date_to": "2026-04-30", "segments": ["Enterprise"]})
+        self.assertEqual(previous["date_from"], "2025-11-04")
+        self.assertEqual(previous["date_to"], "2026-01-31")
+        self.assertEqual(previous["segments"], ["Enterprise"])
 
     def test_editor_sets_page_period(self):
         document = normalize_dashboard([])
@@ -89,13 +164,26 @@ class DashboardTests(unittest.TestCase):
         add_page(legacy, "Finance")
         legacy["pages"][0]["filters"]["cities"] = ["Praha"]
         workspace = normalize_workspace(legacy)
-        self.assertEqual(workspace["version"], 3)
+        self.assertEqual(workspace["version"], 4)
         self.assertEqual(len(workspace["dashboards"]), 1)
         dashboard = workspace["dashboards"][0]
         self.assertEqual(dashboard["name"], "Můj dashboard")
         self.assertEqual(dashboard["pages"], legacy["pages"])
         self.assertEqual(normalize_workspace(workspace), workspace)
         self.assertEqual(normalize_workspace(legacy), workspace)
+
+    def test_dashboard_history_restores_latest_snapshot_for_only_that_dashboard(self):
+        workspace = normalize_workspace(None)
+        dashboard = workspace["dashboards"][0]
+        original_name = dashboard["pages"][0]["name"]
+        save_dashboard_snapshot(workspace, dashboard, "Přejmenování stránky")
+        dashboard["pages"][0]["name"] = "Finance"
+
+        restored = restore_latest_dashboard_snapshot(workspace, dashboard["id"])
+
+        self.assertEqual(restored["pages"][0]["name"], original_name)
+        self.assertEqual(workspace["dashboards"][0]["pages"][0]["name"], original_name)
+        self.assertEqual(workspace["dashboard_history"], [])
 
     def test_workspace_migrates_legacy_cards(self):
         workspace = normalize_workspace([{"id": "one", "title": "Result", "sql": "SELECT 1"}])
