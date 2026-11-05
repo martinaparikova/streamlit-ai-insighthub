@@ -117,8 +117,37 @@ class FrontendTests(unittest.TestCase):
     def test_answer_preserves_native_chat_roles(self):
         self.ask("How many overdue invoices do we have?")
         self.assertEqual([item.name for item in self.app.chat_message], ["user", "assistant"])
-        self.assertEqual(len(self.app.metric), 1)
-        self.assertTrue(any("SQL" in item.label for item in self.app.expander))
+
+    def test_semantic_model_answers_table_question_without_sql(self):
+        self.ask("Jaké tabulky jsou v modelu?")
+
+        self.assertTrue(any(item.value == "Tabulky v semantickém modelu" for item in self.app.subheader))
+        self.assertTrue(any("`companies`" in item.value for item in self.app.markdown))
+
+    def test_knowledge_chat_recovers_when_session_document_is_legacy(self):
+        legacy = {
+            "version": 4,
+            "dashboards": [{"id": "default", "name": "Dashboard", "pages": []}],
+            "saved_chats": [],
+            "dashboard_history": [],
+        }
+        self.store.write_text(json.dumps(legacy), encoding="utf-8")
+        self.app.run()
+
+        self.ask("Jaké tabulky jsou v modelu?")
+
+        self.assert_no_errors()
+        saved = json.loads(self.store.read_text(encoding="utf-8"))
+        self.assertIn("semantic_model", saved)
+        self.assertTrue(any(item.value == "Tabulky v semantickém modelu" for item in self.app.subheader))
+
+    def test_semantic_model_navigation_renders_editor(self):
+        next(item for item in self.app.button if item.label == "Semantický model").click().run()
+
+        self.assert_no_errors()
+        self.assertTrue(any(item.value == "Semantický model" for item in self.app.title))
+        self.assertTrue(any(item.label == "Vytvořit AI draft (brzy)" for item in self.app.button))
+        self.assertEqual(len(self.app.metric), 4)
 
     def test_catalog_error_retries_with_database_feedback(self):
         with patch(
@@ -636,7 +665,7 @@ LIMIT 5""",
         self.assertTrue(any(item.label == "Můj dashboard" for item in self.app.button))
         self.assertFalse(any(item.label == "Finance" for item in self.app.button))
         saved = json.loads(self.store.read_text(encoding="utf-8"))
-        self.assertEqual(saved["version"], 4)
+        self.assertEqual(saved["version"], 5)
         self.assertEqual(len(saved["dashboards"]), 1)
         pages = saved["dashboards"][0]["pages"]
         self.assertEqual([page["id"] for page in pages], ["overview", "finance-page"])
@@ -673,7 +702,7 @@ LIMIT 5""",
 
         self.assert_no_errors()
         saved = json.loads(self.store.read_text(encoding="utf-8"))
-        self.assertEqual(saved["version"], 4)
+        self.assertEqual(saved["version"], 5)
         self.assertEqual(len(saved["dashboards"]), 1)
         self.assertEqual(saved["dashboards"][0]["name"], "Můj dashboard")
         self.assertEqual(saved["dashboards"][0]["pages"][0]["cards"], [])

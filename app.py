@@ -43,6 +43,7 @@ from dashboard import (
     restore_latest_dashboard_snapshot,
     save_dashboard_snapshot,
 )
+from ontology import answer_knowledge_question, draft_preview, normalize_semantic_model, upsert_item
 import duckdb
 import numpy as np
 import pandas as pd
@@ -1139,9 +1140,21 @@ def style_app():
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stCaptionContainer'] p,
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stWidgetLabel'] p {{ color: #FFFFFF !important; }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] {{
-            min-height: 14rem; background: rgba(255,255,255,.08); border-color: rgba(223,245,238,.45); padding: 1.1rem;
+            min-height: 14rem; background: #FFFFFF; border-color: #B7CEC4; padding: 1.1rem;
         }}
-        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel .editor-submit-hint {{ color: #C8DBD2; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] [data-testid='stWidgetLabel'] p,
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] .editor-submit-hint {{ color: #0B3B2E !important; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] [data-baseweb='input'] {{
+            background: #FFFFFF; border-color: #B7CEC4;
+        }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] input {{ color: #0B3B2E !important; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] input::placeholder {{ color: #6E827A !important; opacity: 1; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stFormSubmitButton'] > button {{
+            background: #F2F8F5; border-color: #B7CEC4; color: #0B3B2E;
+        }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stFormSubmitButton'] > button:hover {{
+            background: #DDF5EE; border-color: #0B3B2E; color: #0B3B2E;
+        }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-preview-panel,
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-manual-panel {{
             box-sizing: border-box; width: 100%; min-width: 0; background: #FFFFFF; border-color: #DCE4DF; border-radius: 16px; padding: 1.25rem;
@@ -1458,6 +1471,11 @@ def render_chat_item(item, index):
             else:
                 st.info(item["content"])
             return
+        if item.get("mode") == "knowledge":
+            st.subheader(item["title"])
+            st.markdown(item["content"])
+            st.caption("Zdroj: semantický model · bez spuštění SQL" if st.session_state.get("language") == "cs" else "Source: semantic model · no SQL executed")
+            return
         result = item["result"]
         data = run_sql(result["sql"])
         visual = item["mode"] == "visual"
@@ -1623,6 +1641,19 @@ def render_analytics_chat(document):
         return
 
     st.session_state.chat_history.append({"role": "user", "content": query})
+    # A long-running Streamlit session can still hold a legacy workspace loaded
+    # before the v5 migration. Normalize here as a safe final guard.
+    semantic_model = normalize_semantic_model(document.get("semantic_model"))
+    if document.get("semantic_model") != semantic_model:
+        document["semantic_model"] = semantic_model
+        save_dashboard(document)
+    knowledge_answer = answer_knowledge_question(query, semantic_model)
+    if knowledge_answer and not visual:
+        st.session_state.analysis_context = None
+        st.session_state.chat_history.append({"role": "assistant", "mode": "knowledge", **knowledge_answer})
+        st.session_state.chat_mode = "Semantic model knowledge answer" if st.session_state.get("language") == "en" else "Odpověď ze semantického modelu"
+        st.rerun()
+        return
     failed_sql = None
     try:
         generated = get_llm_sql(query, st.session_state.chat_history[:-1])
@@ -1699,6 +1730,106 @@ def render_analytics_chat(document):
     else:
         st.session_state.chat_history.append({"role": "assistant", "mode": "answer", "result": result})
     st.rerun()
+
+
+def _semantic_status_options():
+    return ["approved", "draft"]
+
+
+def _semantic_status_label(status):
+    return "Schváleno" if status == "approved" and st.session_state.get("language") == "cs" else status
+
+
+def render_semantic_model(document):
+    """Render the editable first-stage semantic model for the built-in demo source."""
+    model = normalize_semantic_model(document.get("semantic_model"))
+    document["semantic_model"] = model
+    cs = st.session_state.get("language") == "cs"
+    st.title("Semantický model" if cs else "Semantic model")
+    st.caption(
+        "Editovatelný zdroj pravdy pro tabulky, vztahy, metriky a business pravidla. Analytický chat z něj odpovídá bez SQL."
+        if cs else "Editable source of truth for tables, relationships, metrics, and business rules. Analytics chat answers from it without SQL."
+    )
+    summary = st.columns(4)
+    summary[0].metric("Tabulky" if cs else "Tables", len(model["tables"]))
+    summary[1].metric("Vztahy" if cs else "Relationships", len(model["relationships"]))
+    summary[2].metric("Metriky" if cs else "Metrics", len(model["metrics"]))
+    summary[3].metric("Pravidla" if cs else "Rules", len(model["rules"]))
+    with st.container(border=True):
+        st.subheader("AI draft" if cs else "AI draft")
+        st.write(draft_preview(model))
+        st.button("Vytvořit AI draft (brzy)" if cs else "Create AI draft (coming soon)", disabled=True, icon=":material/auto_awesome:")
+
+    tables_tab, relations_tab, metrics_tab, knowledge_tab = st.tabs(
+        ["Tabulky" if cs else "Tables", "Vztahy" if cs else "Relationships", "Metriky" if cs else "Metrics", "Business znalosti" if cs else "Business knowledge"]
+    )
+    with tables_tab:
+        for item in model["tables"]:
+            with st.expander(f"{item['name']} · `{item['technical_name']}`", expanded=False):
+                with st.form(f"semantic-table-{item['id']}"):
+                    name = st.text_input("Business název" if cs else "Business name", value=item["name"])
+                    technical_name = st.text_input("Technický název" if cs else "Technical name", value=item["technical_name"])
+                    description = st.text_area("Popis" if cs else "Description", value=item["description"])
+                    grain = st.text_input("Granularita" if cs else "Grain", value=item.get("grain", ""))
+                    status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]), format_func=_semantic_status_label)
+                    if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
+                        document["semantic_model"] = upsert_item(model, "tables", {**item, "name": name, "technical_name": technical_name, "description": description, "grain": grain, "status": status})
+                        save_dashboard(document)
+                        st.rerun()
+    with relations_tab:
+        for item in model["relationships"]:
+            with st.expander(item["name"], expanded=False):
+                with st.form(f"semantic-relation-{item['id']}"):
+                    name = st.text_input("Název" if cs else "Name", value=item["name"])
+                    description = st.text_area("Popis" if cs else "Description", value=item["description"])
+                    left, right = st.columns(2)
+                    from_table = left.text_input("Zdrojová tabulka" if cs else "From table", value=item["from_table"])
+                    from_column = left.text_input("Zdrojový sloupec" if cs else "From column", value=item["from_column"])
+                    to_table = right.text_input("Cílová tabulka" if cs else "To table", value=item["to_table"])
+                    to_column = right.text_input("Cílový sloupec" if cs else "To column", value=item["to_column"])
+                    cardinality = st.selectbox("Kardinalita" if cs else "Cardinality", ["1:1", "1:N", "N:1", "N:M"], index=["1:1", "1:N", "N:1", "N:M"].index(item.get("cardinality", "1:N")))
+                    if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
+                        document["semantic_model"] = upsert_item(model, "relationships", {**item, "name": name, "description": description, "from_table": from_table, "from_column": from_column, "to_table": to_table, "to_column": to_column, "cardinality": cardinality})
+                        save_dashboard(document)
+                        st.rerun()
+    with metrics_tab:
+        for item in model["metrics"]:
+            with st.expander(item["name"], expanded=False):
+                with st.form(f"semantic-metric-{item['id']}"):
+                    name = st.text_input("Název metriky" if cs else "Metric name", value=item["name"])
+                    synonyms = st.text_input("Synonyma (oddělená čárkou)" if cs else "Synonyms (comma separated)", value=", ".join(item.get("synonyms", [])))
+                    description = st.text_area("Business definice" if cs else "Business definition", value=item["description"])
+                    formula = st.text_area("Formula / SQL výraz" if cs else "Formula / SQL expression", value=item["formula"])
+                    entity = st.text_input("Zdrojová entita" if cs else "Source entity", value=item["entity"])
+                    time_dimension = st.text_input("Časová dimenze" if cs else "Time dimension", value=item.get("time_dimension", ""))
+                    rules = st.text_area("Pravidla a výjimky" if cs else "Rules and exceptions", value=item.get("rules", ""))
+                    status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]), key=f"metric-status-{item['id']}", format_func=_semantic_status_label)
+                    if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
+                        document["semantic_model"] = upsert_item(model, "metrics", {**item, "name": name, "synonyms": [value.strip() for value in synonyms.split(",") if value.strip()], "description": description, "formula": formula, "entity": entity, "time_dimension": time_dimension, "rules": rules, "status": status})
+                        save_dashboard(document)
+                        st.rerun()
+        with st.expander("Přidat metriku" if cs else "Add metric"):
+            with st.form("semantic-add-metric", clear_on_submit=True):
+                name = st.text_input("Název metriky" if cs else "Metric name")
+                formula = st.text_input("Formula / SQL výraz" if cs else "Formula / SQL expression")
+                entity = st.text_input("Zdrojová entita" if cs else "Source entity")
+                description = st.text_area("Business definice" if cs else "Business definition")
+                if st.form_submit_button("Přidat metriku" if cs else "Add metric", icon=":material/add:"):
+                    document["semantic_model"] = upsert_item(model, "metrics", {"name": name, "formula": formula, "entity": entity, "description": description, "status": "draft"})
+                    save_dashboard(document)
+                    st.rerun()
+    with knowledge_tab:
+        for collection, heading in (("terms", "Slovník pojmů" if cs else "Business glossary"), ("rules", "Business pravidla" if cs else "Business rules")):
+            st.subheader(heading)
+            for item in model[collection]:
+                with st.expander(item["name"], expanded=False):
+                    with st.form(f"semantic-{collection}-{item['id']}"):
+                        name = st.text_input("Název" if cs else "Name", value=item["name"])
+                        description = st.text_area("Popis" if cs else "Description", value=item["description"])
+                        if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
+                            document["semantic_model"] = upsert_item(model, collection, {**item, "name": name, "description": description})
+                            save_dashboard(document)
+                            st.rerun()
 
 
 def render_dashboard(document, dashboard):
@@ -1879,6 +2010,12 @@ with st.sidebar:
         st.session_state.dashboard_create_open = False
         st.session_state.saved_chat_menu_open = False
         st.rerun()
+    if st.button("Semantický model" if st.session_state.get("language") == "cs" else "Semantic model", icon=":material/account_tree:", use_container_width=True):
+        st.session_state.workspace_view = "semantic_model"
+        st.session_state.dashboard_menu_open = False
+        st.session_state.dashboard_create_open = False
+        st.session_state.saved_chat_menu_open = False
+        st.rerun()
     if st.button(t("dashboards"), icon=":material/dashboard:", use_container_width=True):
         st.session_state.dashboard_menu_open = not st.session_state.get("dashboard_menu_open", False)
         st.session_state.saved_chat_menu_open = False
@@ -1965,7 +2102,9 @@ if st.session_state.pop("demo_reset_notice", None):
 render_language_switcher()
 render_demo_project_notice()
 
-if st.session_state.get("workspace_view") == "dashboard":
+if st.session_state.get("workspace_view") == "semantic_model":
+    render_semantic_model(document)
+elif st.session_state.get("workspace_view") == "dashboard":
     active_dashboard_id = st.session_state.get("active_dashboard_id")
     active_dashboard = next((item for item in document["dashboards"] if item["id"] == active_dashboard_id), None)
     if active_dashboard is None:

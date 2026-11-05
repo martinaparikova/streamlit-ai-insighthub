@@ -175,13 +175,20 @@ class DashboardTests(unittest.TestCase):
         add_page(legacy, "Finance")
         legacy["pages"][0]["filters"]["cities"] = ["Praha"]
         workspace = normalize_workspace(legacy)
-        self.assertEqual(workspace["version"], 4)
+        self.assertEqual(workspace["version"], 5)
         self.assertEqual(len(workspace["dashboards"]), 1)
         dashboard = workspace["dashboards"][0]
         self.assertEqual(dashboard["name"], "Můj dashboard")
         self.assertEqual(dashboard["pages"], legacy["pages"])
         self.assertEqual(normalize_workspace(workspace), workspace)
         self.assertEqual(normalize_workspace(legacy), workspace)
+
+    def test_workspace_adds_default_semantic_model_to_legacy_document(self):
+        workspace = normalize_workspace({"version": 4, "dashboards": [{"id": "default", "name": "Dashboard", "pages": []}]})
+
+        self.assertEqual(workspace["version"], 5)
+        self.assertEqual([item["technical_name"] for item in workspace["semantic_model"]["tables"]], ["companies", "invoices", "opportunities"])
+        self.assertTrue(any(item["id"] == "revenue" for item in workspace["semantic_model"]["metrics"]))
 
     def test_dashboard_history_restores_latest_snapshot_for_only_that_dashboard(self):
         workspace = normalize_workspace(None)

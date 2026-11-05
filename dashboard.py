@@ -7,6 +7,7 @@ import uuid
 
 from sqlglot import exp, parse_one
 from sqlglot.optimizer.scope import traverse_scope
+from ontology import normalize_semantic_model
 
 
 SEGMENTS = ("Enterprise", "Mid-market", "SMB")
@@ -164,7 +165,14 @@ def normalize_workspace(document):
                 dashboard_history.append(snapshot)
             except (AttributeError, TypeError):
                 continue
-    return {"version": 4, "dashboards": dashboards, "saved_chats": saved_chats, "dashboard_history": dashboard_history}
+    semantic_model = normalize_semantic_model(document.get("semantic_model") if isinstance(document, dict) else None)
+    return {
+        "version": 5,
+        "dashboards": dashboards,
+        "saved_chats": saved_chats,
+        "dashboard_history": dashboard_history,
+        "semantic_model": semantic_model,
+    }
 
 
 def save_dashboard_snapshot(document, dashboard, label):
