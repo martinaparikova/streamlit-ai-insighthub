@@ -75,6 +75,8 @@ TEXT = {
         "save_destination": "Uloží se do dashboardu <strong>{dashboard}</strong> na stránku <strong>{page}</strong> s názvem <strong>{title}</strong>.",
         "local_data": "Lokální data · DuckDB · SQL pouze pro čtení", "demo_data": "Demo data 2026",
         "demo_data_notice": "Testovací prostředí: pracujete s fiktivními ukázkovými daty ERP a CRM společnosti.",
+        "reset_demo": "Resetovat demo", "reset_demo_help": "Smaže všechny společně uložené dashboardy, změny i chaty a vrátí aplikaci do výchozího stavu.",
+        "reset_demo_confirm": "Rozumím, že tím smažu společná demo data všech testerů.", "reset_demo_done": "Demo bylo resetováno do výchozího stavu.",
         "sql_trace": "SQL trace — zobrazit skutečně vykonaný dotaz", "sql_rows": "DuckDB · read-only SELECT · vráceno řádků: {rows}",
         "you_question": "VY · DOTAZ", "visualization": "VIZUALIZACE", "result": "VÝSLEDEK",
         "chart_details": "Graf · {kind} · {color} · {font} · zvýraznění: {highlight}", "no_highlight": "žádné",
@@ -158,6 +160,8 @@ TEXT = {
         "save_changes": "Save changes", "card_updated": "Card updated.", "dashboard_editor": "Dashboard editor",
         "editor_example": "For example: “Add page Finance”, “set weekly”, “change chart to line”, “sort ascending”, or “set pink”.",
         "editor_instruction": "Editor instruction", "editor_placeholder": "Update the currently selected card…", "apply_change": "Apply change", "generated": "Generated locally",
+        "reset_demo": "Reset demo", "reset_demo_help": "Delete all shared dashboards, changes, and chats, then return the app to its default state.",
+        "reset_demo_confirm": "I understand that this deletes the shared demo data for every tester.", "reset_demo_done": "The demo has been reset to its default state.",
     },
 }
 
@@ -740,6 +744,22 @@ def reset_current_chat():
     st.session_state.dashboard_add_notice = None
     st.session_state.dashboard_add_item_index = None
     st.session_state.active_saved_chat_id = None
+
+
+def reset_demo():
+    """Restore the shared demo workspace and clear transient session state."""
+    save_dashboard(normalize_workspace(None))
+    reset_current_chat()
+    st.session_state.workspace_view = "chat"
+    st.session_state.active_dashboard_id = None
+    st.session_state.active_dashboard_page = None
+    st.session_state.selected_dashboard_card = None
+    st.session_state.pending_dashboard_edit = None
+    st.session_state.dashboard_editor_notice = None
+    st.session_state.dashboard_menu_open = False
+    st.session_state.dashboard_create_open = False
+    st.session_state.saved_chat_menu_open = False
+    st.session_state.demo_reset_notice = t("reset_demo_done")
 
 
 def pdf_report(page):
@@ -1589,8 +1609,17 @@ with st.sidebar:
                     st.session_state.active_saved_chat_id = saved_chat["id"]
                     st.rerun()
     st.divider()
+    with st.expander(t("reset_demo"), icon=":material/restart_alt:"):
+        st.warning(t("reset_demo_help"))
+        confirmed = st.checkbox(t("reset_demo_confirm"), key="confirm-demo-reset")
+        if st.button(t("reset_demo"), key="reset-demo", type="primary", icon=":material/delete_forever:", disabled=not confirmed, width="stretch"):
+            reset_demo()
+            st.rerun()
     st.caption(t("local_data"))
     st.caption(t("demo_data"))
+
+if st.session_state.pop("demo_reset_notice", None):
+    st.success(t("reset_demo_done"))
 
 _, language_column = st.columns([7, 2], vertical_alignment="center")
 with language_column:

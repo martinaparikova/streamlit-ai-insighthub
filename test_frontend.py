@@ -67,7 +67,8 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("role='tooltip'", heading)
         self.assertIn("aria-describedby='chat-help'", heading)
         self.assertEqual(len(self.app.subheader), 0)
-        self.assertEqual(len(self.app.expander), 0)
+        self.assertEqual(len(self.app.expander), 1)
+        self.assertEqual(self.app.expander[0].label, "Resetovat demo")
         self.assertTrue(any(item.label == "Dashboardy" for item in self.app.button))
         self.assertFalse(any(item.label == "Můj dashboard" for item in self.app.button))
         self.assertFalse(any(item.label == "Název nového dashboardu" for item in self.app.text_input))
@@ -545,6 +546,29 @@ LIMIT 5""",
         self.assertEqual(filters["segments"], ["Enterprise"])
         self.assertEqual(filters["date_from"], "2026-01-01")
         self.assertEqual(filters["date_to"], "2026-10-31")
+
+    def test_reset_demo_restores_the_shared_default_workspace(self):
+        document = normalize_workspace(None)
+        dashboard = add_dashboard(document, "Finance")
+        dashboard["pages"][0]["cards"] = [{"id": "revenue", "title": "Revenue", "kind": "metric", "sql": "SELECT 1"}]
+        document["saved_chats"] = [{"id": "chat", "title": "Saved", "history": [{"role": "user", "content": "Test"}]}]
+        document["dashboard_history"] = [{"id": "history", "label": "Change", "dashboard": dashboard}]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+
+        self.app.checkbox(key="confirm-demo-reset").check().run()
+        next(item for item in self.app.button if item.label == "Resetovat demo").click().run()
+
+        self.assert_no_errors()
+        saved = json.loads(self.store.read_text(encoding="utf-8"))
+        self.assertEqual(saved["version"], 4)
+        self.assertEqual(len(saved["dashboards"]), 1)
+        self.assertEqual(saved["dashboards"][0]["name"], "Můj dashboard")
+        self.assertEqual(saved["dashboards"][0]["pages"][0]["cards"], [])
+        self.assertEqual(saved["saved_chats"], [])
+        self.assertEqual(saved["dashboard_history"], [])
+        self.assertEqual(self.app.session_state["workspace_view"], "chat")
+        self.assertTrue(any(item.value == "Demo bylo resetováno do výchozího stavu." for item in self.app.success))
 
     def test_dashboard_renders_filtered_metric_union_and_pdf(self):
         document = normalize_workspace(None)
