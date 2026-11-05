@@ -13,6 +13,7 @@ from dashboard import (
     normalize_dashboard,
     normalize_workspace,
     page_name_exists,
+    rename_dashboard,
     parse_editor_command,
     previous_period_filters,
     restore_latest_dashboard_snapshot,
@@ -86,6 +87,16 @@ class DashboardTests(unittest.TestCase):
 
         self.assertEqual(card["title"], "Number of invoices overdue")
         self.assertEqual(card["kind"], "bar")
+        self.assertIn("název", notice)
+
+    def test_editor_renames_selected_card_from_english_shorthand(self):
+        document = normalize_dashboard([{"title": "Revenue", "kind": "bar", "sql": "SELECT 1", "x": "x", "y": "y"}])
+        page = document["pages"][0]
+        card_id = page["cards"][0]["id"]
+
+        updated, notice = parse_editor_command(document, page["id"], "Rename it to Segments by Revenue", card_id)
+
+        self.assertEqual(updated["pages"][0]["cards"][0]["title"], "Segments by Revenue")
         self.assertIn("název", notice)
 
     def test_editor_changes_type_only_for_explicit_change_chart_command(self):
@@ -237,6 +248,19 @@ class DashboardTests(unittest.TestCase):
             add_dashboard(workspace, "finance")
         with self.assertRaises(ValueError):
             add_dashboard(workspace, " ")
+
+    def test_dashboard_can_be_renamed_without_conflicting_with_itself(self):
+        workspace = normalize_workspace(None)
+        dashboard = workspace["dashboards"][0]
+        finance = add_dashboard(workspace, "Finance")
+
+        renamed = rename_dashboard(workspace, dashboard["id"], "  Můj přehled  ")
+
+        self.assertEqual(renamed["name"], "Můj přehled")
+        self.assertEqual(workspace["dashboards"][0]["name"], "Můj přehled")
+        self.assertEqual(finance["name"], "Finance")
+        with self.assertRaises(ValueError):
+            rename_dashboard(workspace, dashboard["id"], " finance ")
 
     def test_editor_changes_only_selected_dashboard_pages(self):
         workspace = normalize_workspace(None)

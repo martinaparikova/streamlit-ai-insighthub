@@ -38,6 +38,7 @@ from dashboard import (
     page_by_id,
     parse_editor_command,
     previous_period_filters,
+    rename_dashboard,
     remove_page,
     restore_latest_dashboard_snapshot,
     save_dashboard_snapshot,
@@ -56,9 +57,15 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 ROOT = Path(__file__).parent
 DATA_DIR = ROOT / "data"
 STORE = ROOT / "storage" / "dashboard.json"
+LOGO_PATH = ROOT / "assets" / "biizy_logo.png"
 FOREST, PAPER, PINK, GREEN, SLATE = "#0B3B2E", "#F7F7F7", "#C2185B", "#2F6B5A", "#4B5563"
 CREATE_NEW_DASHBOARD = "__create_new_dashboard__"
 NEW_DASHBOARD_OVERVIEW = "__new_dashboard_overview__"
+COLOR_OPTION_LABELS = {
+    "#0B3B2E": "🟩 Forest green · #0B3B2E",
+    "#C2185B": "🩷 Pink · #C2185B",
+    "#4B5563": "⬛ Slate gray · #4B5563",
+}
 
 st.set_page_config(page_title="Biizy · BI easy", page_icon="✦", layout="wide", initial_sidebar_state="expanded")
 
@@ -66,7 +73,7 @@ TEXT = {
     "cs": {
         "language": "Jazyk rozhraní", "sidebar_subtitle": "BI easy · ERP × CRM přehled",
         "workspace": "Pracovní plocha", "analytics_chat": "Analytický chat", "dashboards": "Dashboardy", "saved_chats": "Uložené chaty",
-        "dashboard_name": "Název nového dashboardu", "create_dashboard": "Vytvořit nový",
+        "dashboard_name": "Název nového dashboardu", "rename_dashboard_name": "Název dashboardu", "rename_dashboard": "Přejmenovat", "dashboard_renamed": "Dashboard byl přejmenován na „{dashboard}“.", "create_dashboard": "Vytvořit nový",
         "save_dashboard": "Uložit", "save_chat": "Uložit chat", "chat_saved": "Chat byl uložen.",
         "chat_name": "Název chatu", "rename_chat": "Uložit název", "chat_name_required": "Zadejte název chatu.",
         "overview": "Přehled", "target_page": "Stránka",
@@ -74,7 +81,13 @@ TEXT = {
         "new_dashboard_placeholder": "Nový dashboard",
         "save_destination": "Uloží se do dashboardu <strong>{dashboard}</strong> na stránku <strong>{page}</strong> s názvem <strong>{title}</strong>.",
         "local_data": "Lokální data · DuckDB · SQL pouze pro čtení", "demo_data": "Demo data 2026",
-        "demo_data_notice": "Testovací prostředí: pracujete s fiktivními ukázkovými daty ERP a CRM společnosti.",
+        "demo_project_title": "Biizy je work in progress",
+        "demo_project_intro": "Pracovní demo pro rychlé zkoumání propojených ERP a CRM dat.",
+        "demo_project_capabilities": "Co aplikace umí", "demo_project_capability_one": "Odpovídat na otázky nad ukázkovými daty přirozeným jazykem.", "demo_project_capability_two": "Zobrazit výsledek jako tabulku, metriku nebo graf.", "demo_project_capability_three": "Uložit výsledek na vlastní dashboard a dále jej upravovat.",
+        "demo_project_how_to": "Jak na to", "demo_project_how_to_one": "Napište dotaz do Analytického chatu.", "demo_project_how_to_two": "Výsledek upřesněte nebo z něj vytvořte graf.", "demo_project_how_to_three": "Přidejte ho na vybranou stránku dashboardu.",
+        "demo_project_roadmap": "Plány", "demo_project_roadmap_one": "Napojení na Microsoft Fabric Data včetně ontologie.", "demo_project_roadmap_two": "Tvorba ontologie přímo v aplikaci.", "demo_project_roadmap_three": "Další datové zdroje a analytické možnosti.",
+        "demo_project_feedback": "Komentáře a nápady posílejte na {email}.",
+        "hide_demo_project_notice": "Skrýt", "show_demo_project_notice": "Informace o projektu",
         "reset_demo": "Resetovat demo", "reset_demo_help": "Smaže všechny společně uložené dashboardy, změny i chaty a vrátí aplikaci do výchozího stavu.",
         "reset_demo_confirm": "Rozumím, že tím smažu společná demo data všech testerů.", "reset_demo_done": "Demo bylo resetováno do výchozího stavu.",
         "sql_trace": "SQL trace — zobrazit skutečně vykonaný dotaz", "sql_rows": "DuckDB · read-only SELECT · vráceno řádků: {rows}",
@@ -112,11 +125,17 @@ TEXT = {
         "save_changes": "Uložit úpravy", "card_updated": "Karta byla upravena.", "dashboard_editor": "Editor dashboardu",
         "editor_example": "Např. „Přidej stránku Finance“, „nastav weekly“, „změň graf na line“, „seřaď vzestupně“ nebo „nastav růžovou“.",
         "editor_instruction": "Pokyn pro editor", "editor_placeholder": "Uprav aktuálně vybranou kartu…", "apply_change": "Provést změnu", "generated": "Vygenerováno lokálně",
+        "editor_history": "Historie editoru: {count} uložených verzí (max. 30).", "undo_last_change": "Vrátit poslední změnu", "undo_completed": "Poslední potvrzená změna byla vrácena.",
+        "block_width": "Šířka bloku", "layout_row": "Řádek rozvržení", "comment_text": "Text komentáře", "decimal_places": "Desetinná místa", "value_format": "Formát hodnoty", "trend_evaluation": "Vyhodnocení trendu",
+        "selected_card": "Aktuálně vybraná karta: **{title}**", "select_card_for_editor": "Nejdřív u požadované karty klikněte na „Upravit“. Pokyny pro stránku a přidání bloků fungují i bez výběru.",
+        "propose_change": "Navrhnout změnu", "editor_submit_hint": "Stiskněte Enter pro odeslání nebo použijte tlačítko níže.", "change_preview": "Náhled navržené změny", "change_preview_note": "Změna se uloží až po potvrzení. Před uložením vznikne verze pro Undo.", "confirm_change": "Potvrdit změnu", "discard_proposal": "Zahodit návrh",
+        "editor_command_unrecognized": "Pokyn jsem nerozpoznal. Zkuste například „změň graf na line“, „seřaď vzestupně“ nebo „nastav růžovou“.", "editor_card_updated": "Karta „{title}“ byla upravena.",
+        "card_editor_title": "Upravit kartu", "card_editor_settings": "Nastavení", "working_preview": "Pracovní náhled", "working_preview_note": "Změny se projeví na dashboardu až po uložení.", "discard_changes": "Zahodit změny", "selected_color": "Vybraná barva",
     },
     "en": {
         "language": "Interface language", "sidebar_subtitle": "BI easy · ERP × CRM overview",
         "workspace": "Workspace", "analytics_chat": "Analytics chat", "dashboards": "Dashboards", "saved_chats": "Saved chats",
-        "dashboard_name": "New dashboard name", "create_dashboard": "Create new",
+        "dashboard_name": "New dashboard name", "rename_dashboard_name": "Dashboard name", "rename_dashboard": "Rename", "dashboard_renamed": "Dashboard renamed to “{dashboard}”.", "create_dashboard": "Create new",
         "save_dashboard": "Save", "save_chat": "Save chat", "chat_saved": "Chat saved.",
         "chat_name": "Chat name", "rename_chat": "Save name", "chat_name_required": "Enter a chat name.",
         "overview": "Overview", "target_page": "Page",
@@ -124,7 +143,13 @@ TEXT = {
         "new_dashboard_placeholder": "New dashboard",
         "save_destination": "This will be saved to dashboard <strong>{dashboard}</strong>, page <strong>{page}</strong>, as <strong>{title}</strong>.",
         "local_data": "Local data · DuckDB · read-only SQL", "demo_data": "2026 demo data",
-        "demo_data_notice": "Test environment: you are working with fictional sample ERP and CRM data for a company.",
+        "demo_project_title": "Biizy is a work in progress",
+        "demo_project_intro": "A working demo for exploring connected ERP and CRM data quickly.",
+        "demo_project_capabilities": "What the app can do", "demo_project_capability_one": "Answer questions about the sample data in natural language.", "demo_project_capability_two": "Show results as a table, metric, or chart.", "demo_project_capability_three": "Save results to your dashboard and refine them later.",
+        "demo_project_how_to": "How to use it", "demo_project_how_to_one": "Ask a question in Analytics chat.", "demo_project_how_to_two": "Refine the result or turn it into a chart.", "demo_project_how_to_three": "Add it to a selected dashboard page.",
+        "demo_project_roadmap": "Plans", "demo_project_roadmap_one": "Microsoft Fabric Data connection, including ontology support.", "demo_project_roadmap_two": "Ontology creation directly in the app.", "demo_project_roadmap_three": "Additional data sources and analytical capabilities.",
+        "demo_project_feedback": "Please send comments and ideas to {email}.",
+        "hide_demo_project_notice": "Hide", "show_demo_project_notice": "Project information",
         "sql_trace": "SQL trace — show the executed query", "sql_rows": "DuckDB · read-only SELECT · rows returned: {rows}",
         "you_question": "YOU · QUESTION", "visualization": "VISUALIZATION", "result": "RESULT",
         "chart_details": "Chart · {kind} · {color} · {font} · highlight: {highlight}", "no_highlight": "none",
@@ -160,6 +185,12 @@ TEXT = {
         "save_changes": "Save changes", "card_updated": "Card updated.", "dashboard_editor": "Dashboard editor",
         "editor_example": "For example: “Add page Finance”, “set weekly”, “change chart to line”, “sort ascending”, or “set pink”.",
         "editor_instruction": "Editor instruction", "editor_placeholder": "Update the currently selected card…", "apply_change": "Apply change", "generated": "Generated locally",
+        "editor_history": "Editor history: {count} saved versions (max. 30).", "undo_last_change": "Undo last change", "undo_completed": "The last confirmed change was undone.",
+        "block_width": "Block width", "layout_row": "Layout row", "comment_text": "Comment text", "decimal_places": "Decimal places", "value_format": "Value format", "trend_evaluation": "Trend evaluation",
+        "selected_card": "Currently selected card: **{title}**", "select_card_for_editor": "Select a card with its Edit button first. Page instructions and adding blocks also work without a selection.",
+        "propose_change": "Propose change", "editor_submit_hint": "Press Enter to submit, or use the button below.", "change_preview": "Proposed change preview", "change_preview_note": "The change is saved only after confirmation. A version for Undo is created first.", "confirm_change": "Confirm change", "discard_proposal": "Discard proposal",
+        "editor_command_unrecognized": "I could not recognize that instruction. Try, for example, “change chart to line”, “sort ascending”, or “set pink”.", "editor_card_updated": "Card “{title}” was updated.",
+        "card_editor_title": "Edit card", "card_editor_settings": "Settings", "working_preview": "Working preview", "working_preview_note": "Changes appear on the dashboard only after you save them.", "discard_changes": "Discard changes", "selected_color": "Selected color",
         "reset_demo": "Reset demo", "reset_demo_help": "Delete all shared dashboards, changes, and chats, then return the app to its default state.",
         "reset_demo_confirm": "I understand that this deletes the shared demo data for every tester.", "reset_demo_done": "The demo has been reset to its default state.",
     },
@@ -182,6 +213,74 @@ def render_language_switcher():
     if choose_english and st.session_state.language != "en":
         st.session_state.language = "en"
         st.rerun()
+
+
+def render_sidebar_brand():
+    """Render the supplied Biizy artwork when it is available locally."""
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width="stretch", alt="Biizy — BI easy")
+        return
+    st.markdown(
+        """<div class='biizy-brand'>
+        <svg class='biizy-mark' viewBox='0 0 48 48' aria-hidden='true'>
+          <circle cx='24' cy='24' r='22' fill='#DDF5EE'/>
+          <path d='M15 28 L23 18 L33 25' fill='none' stroke='#0B3B2E' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/>
+          <circle cx='15' cy='28' r='4' fill='#C2185B'/><circle cx='23' cy='18' r='4' fill='#0B3B2E'/><circle cx='33' cy='25' r='4' fill='#2F6B5A'/>
+        </svg>
+        <div><div class='biizy-name'>Biizy</div><div class='biizy-tagline'>BI easy</div></div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+
+def hide_demo_project_notice():
+    """Collapse the work-in-progress notice for the active browser session."""
+    st.session_state.demo_project_notice_hidden = True
+
+
+def show_demo_project_notice():
+    """Expand the work-in-progress notice for the active browser session."""
+    st.session_state.demo_project_notice_hidden = False
+
+
+def render_demo_project_notice():
+    """Render the project notice with an in-place control to collapse or expand it."""
+    with st.container(key="demo-project-notice"):
+        if st.session_state.get("demo_project_notice_hidden", False):
+            with st.container(horizontal=True, horizontal_alignment="left"):
+                st.button(
+                    t("show_demo_project_notice"), key="show-demo-project-notice",
+                    icon=":material/info:", on_click=show_demo_project_notice, width="content",
+                )
+            return
+
+        st.markdown(
+            f"<div class='demo-project-notice__content'>"
+            f"<h2>{escape(t('demo_project_title'))}</h2>"
+            f"<p>{escape(t('demo_project_intro'))}</p>"
+            f"<div class='demo-project-notice__sections'>"
+            f"<section><h3>{escape(t('demo_project_capabilities'))}</h3><ul>"
+            f"<li>{escape(t('demo_project_capability_one'))}</li>"
+            f"<li>{escape(t('demo_project_capability_two'))}</li>"
+            f"<li>{escape(t('demo_project_capability_three'))}</li></ul></section>"
+            f"<section><h3>{escape(t('demo_project_how_to'))}</h3><ol>"
+            f"<li>{escape(t('demo_project_how_to_one'))}</li>"
+            f"<li>{escape(t('demo_project_how_to_two'))}</li>"
+            f"<li>{escape(t('demo_project_how_to_three'))}</li></ol></section>"
+            f"<section><h3>{escape(t('demo_project_roadmap'))}</h3><ul>"
+            f"<li>{escape(t('demo_project_roadmap_one'))}</li>"
+            f"<li>{escape(t('demo_project_roadmap_two'))}</li>"
+            f"<li>{escape(t('demo_project_roadmap_three'))}</li></ul></section>"
+            "</div>"
+            f"<p>{t('demo_project_feedback', email='<a href=\"mailto:martina.parikova@gmail.com\">martina.parikova@gmail.com</a>')}</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        with st.container(horizontal=True, horizontal_alignment="right"):
+            st.button(
+                t("hide_demo_project_notice"), key="hide-demo-project-notice",
+                on_click=hide_demo_project_notice, width="content",
+            )
 
 
 def make_fake_data():
@@ -512,29 +611,37 @@ def render_kpi(spec, page):
     st.metric(spec["title"], format_card_value(value, spec), delta=delta_text, delta_color=delta_color)
 
 
+def render_card_content(spec, page, key_prefix, show_sql=True):
+    """Render a card body without its dashboard management controls."""
+    if spec["kind"] == "text":
+        if spec.get("title") and spec["title"] != "Komentář":
+            st.subheader(spec["title"])
+        st.markdown(spec.get("text") or "")
+        return
+    if spec["kind"] == "kpi":
+        render_kpi(spec, page)
+        return
+    filtered_sql, data = card_data(spec, page)
+    if spec["kind"] == "table":
+        st.subheader(spec["title"])
+        st.dataframe(data, width="stretch", hide_index=True)
+    elif spec["kind"] == "metric":
+        value = data.iloc[0, 0] if not data.empty else None
+        st.metric(spec["title"], format_card_value(value, spec))
+    else:
+        st.plotly_chart(chart_figure(spec, data), width="stretch", key=f"{key_prefix}-chart-{spec['id']}")
+    if show_sql:
+        sql_card(filtered_sql, len(data))
+
+
 def render_dashboard_card(spec, page, document, index):
     with st.container(border=True, key=f"dashboard-card-{spec['id']}"):
-        if spec["kind"] == "text":
-            if spec.get("title") and spec["title"] != "Komentář":
-                st.subheader(spec["title"])
-            st.markdown(spec.get("text") or "")
-        elif spec["kind"] == "kpi":
-            render_kpi(spec, page)
-        else:
-            filtered_sql, data = card_data(spec, page)
-            if spec["kind"] == "table":
-                st.subheader(spec["title"])
-                st.dataframe(data, width="stretch", hide_index=True)
-            elif spec["kind"] == "metric":
-                value = data.iloc[0, 0] if not data.empty else None
-                st.metric(spec["title"], format_card_value(value, spec))
-            else:
-                st.plotly_chart(chart_figure(spec, data), width="stretch", key=f"chart-{page['id']}-{spec['id']}")
-            sql_card(filtered_sql, len(data))
+        render_card_content(spec, page, f"dashboard-{page['id']}")
         controls = st.columns(4, gap="small")
         with controls[0]:
             if st.button(t("edit"), key=f"select-{spec['id']}", icon=":material/edit:", width="stretch"):
                 st.session_state.selected_dashboard_card = spec["id"]
+                st.session_state.dashboard_card_editor = spec["id"]
                 st.rerun()
         with controls[1]:
             if st.button(t("move_up"), key=f"up-{spec['id']}", disabled=index == 0, icon=":material/arrow_upward:", width="stretch"):
@@ -611,9 +718,13 @@ def local_editor_plan(command, dashboard, page, selected_card_id):
     """Keep a small deterministic fallback when no API key is configured."""
     updated, notice = parse_editor_command(dashboard, page["id"], command, selected_card_id)
     if notice.startswith("Pokyn jsem nerozpoznal"):
-        return None, notice
+        return None, t("editor_command_unrecognized")
     candidate = deepcopy(dashboard)
     candidate["pages"] = updated["pages"]
+    if selected_card_id and st.session_state.get("language") == "en":
+        selected = next((card for card in page_by_id(candidate, page["id"])["cards"] if card["id"] == selected_card_id), None)
+        if selected:
+            notice = t("editor_card_updated", title=selected["title"])
     return {"mode": "local", "command": command, "dashboard": candidate, "summary": notice}, None
 
 
@@ -819,7 +930,7 @@ def style_app():
             background: {PAPER}; color: var(--ink); font-family: 'Plus Jakarta Sans', sans-serif;
         }}
         .stApp :is(p, label, input, textarea, button) {{ font-family: 'Plus Jakarta Sans', sans-serif; }}
-        .block-container {{ max-width: 1180px; padding-top: 2.5rem; padding-bottom: 3rem; }}
+        .block-container {{ max-width: 1180px; padding-top: 1rem; padding-bottom: 3rem; }}
         h1,h2,h3,h4 {{ color: var(--ink); font-family: 'Plus Jakarta Sans', sans-serif; letter-spacing: -.035em; }}
         h1 {{ font-size: clamp(1.85rem, 4vw, 2.4rem) !important; font-weight: 600 !important; }}
         h2,h3 {{ font-weight: 600 !important; }}
@@ -834,13 +945,17 @@ def style_app():
         .biizy-mark {{ width: 4rem; height: 4rem; flex: 0 0 auto; filter: drop-shadow(0 5px 10px rgba(0,0,0,.2)); }}
         .biizy-name {{ color: white; font-size: 2.95rem; font-weight: 800; letter-spacing: -.095em; line-height: .84; text-shadow: 0 2px 12px rgba(0,0,0,.16); }}
         .biizy-tagline {{ color: #9FE2CF; font-size: .78rem; font-weight: 800; letter-spacing: .25em; line-height: 1.4; margin-top: .72rem; text-transform: uppercase; }}
-        .st-key-language-switcher {{ display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: .25rem; align-items: center; margin: 0; }}
+        .st-key-language-switcher {{
+            position: fixed; top: .48rem; right: 13.6rem; z-index: 1000001;
+            display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: .2rem; align-items: center; margin: 0;
+        }}
         .st-key-language-cs, .st-key-language-en {{ margin: 0; }}
         .st-key-language-cs button, .st-key-language-en button {{
-            position: relative; width: 3rem !important; min-width: 3rem !important; min-height: 2rem; height: 2rem;
-            padding: 0 !important; border: 2px solid #B6C6D1 !important;
-            border-radius: 5px !important; background-color: #012169 !important; background-position: center !important;
-            background-repeat: no-repeat !important; background-size: 100% 100% !important; overflow: visible;
+            position: relative; box-sizing: border-box; display: block; width: 2.1rem !important; min-width: 2.1rem !important;
+            min-height: 1.4rem !important; height: 1.4rem !important; padding: 0 !important; line-height: 0 !important;
+            border: 1px solid #B6C6D1 !important; border-radius: 2px !important; background-color: transparent !important;
+            background-position: center !important; background-repeat: no-repeat !important; background-size: 100% 100% !important;
+            overflow: visible;
         }}
         .st-key-language-cs button {{
             background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzIDIiPjxwYXRoIGZpbGw9IiNmZmYiIGQ9Ik0wIDBoM3YySDB6Ii8+PHBhdGggZmlsbD0iI2Q3MTQxYSIgZD0iTTAgMWgzdjFIMHoiLz48cGF0aCBmaWxsPSIjMTE0NTdlIiBkPSJNMCAwdjJsMS41LTF6Ii8+PC9zdmc+") !important;
@@ -857,7 +972,10 @@ def style_app():
         .st-key-language-cs button:hover::after {{ content: 'Čeština'; }}
         .st-key-language-en button:hover::after {{ content: 'English'; }}
         .st-key-language-cs button[kind^='primary'], .st-key-language-en button[kind^='primary'] {{
-            border-color: #FFFFFF !important; box-shadow: 0 0 0 3px #9FE2CF, 0 5px 12px rgba(0,0,0,.2) !important;
+            border-color: var(--ink) !important; box-shadow: inset 0 0 0 1px #9FE2CF !important;
+        }}
+        @media (max-width: 700px) {{
+            .st-key-language-switcher {{ right: 10.5rem; }}
         }}
         [data-testid='stSidebar'] [role='radiogroup'] {{ gap: .4rem; }}
         [data-testid='stSidebar'] [role='radiogroup'] label {{ border-radius: 10px; padding: .65rem .75rem; color: white; }}
@@ -873,6 +991,8 @@ def style_app():
         [data-testid='stTextArea'] textarea, [data-testid='stTextInput'] input {{ caret-color: var(--accent); }}
         textarea::placeholder, input::placeholder {{ color: #66746D !important; opacity: 1; }}
         [data-testid='stWidgetLabel'] p {{ font-weight: 500; }}
+        [class*='st-key-dashboard-editor-'] [data-testid='stTextInput'] small {{ display: none !important; }}
+        .editor-submit-hint {{ margin: -.35rem 0 .8rem; color: #54756A; font-size: .82rem; line-height: 1.35; }}
         [data-testid='stDialog'] [role='dialog'] {{
             width: min(960px, calc(100vw - 2rem)) !important;
             max-width: 960px !important;
@@ -896,12 +1016,40 @@ def style_app():
         [data-testid='stChatMessage'] h3 {{ font-size: 1.35rem; padding-top: 0; }}
         [data-testid='stChatMessage'] [data-testid='stMetric'] {{ background: rgba(255,255,255,.65); }}
         [data-testid='stChatMessage'] [data-testid='stExpander'] {{ background: rgba(255,255,255,.5); }}
-        .demo-data-notice {{
-            display: flex; align-items: center; gap: .8rem; margin: .15rem 0 1.5rem; padding: .9rem 1.1rem;
-            color: #29485A; background: #EEF7F5; border: 1px solid #B9E2D7; border-radius: 10px; font-size: .98rem;
-            font-weight: 500; line-height: 1.45; box-shadow: 0 1px 0 rgba(14,116,144,.05);
+        .st-key-demo-project-notice {{
+            margin: 0 0 1.25rem; padding: 1.4rem 1.45rem 1rem; background: #FCE4EC; border: 1px solid #EC407A;
+            border-radius: 16px; box-shadow: 0 10px 28px rgba(194,24,91,.16);
         }}
-        .demo-data-notice svg {{ width: 1.4rem; height: 1.4rem; flex: 0 0 auto; }}
+        .st-key-demo-project-notice:has(.st-key-show-demo-project-notice) {{
+            position: relative; z-index: 1000002; top: -3.45rem; left: -4.625rem;
+            margin: 0 0 -0.75rem; padding: 0; background: transparent; border: 0; box-shadow: none;
+        }}
+        .st-key-demo-project-notice:has(.st-key-show-demo-project-notice) [data-testid='stButton'] > button {{
+            min-height: 2.7rem; padding: .55rem 1rem; background: #C2185B !important;
+            color: #FFFFFF !important; border: 1px solid #AD1457 !important; font-weight: 700;
+            box-shadow: 0 4px 12px rgba(194,24,91,.24);
+        }}
+        .st-key-demo-project-notice:has(.st-key-show-demo-project-notice) button p,
+        .st-key-demo-project-notice:has(.st-key-show-demo-project-notice) button [data-testid='stMarkdownContainer'] {{ color: #FFFFFF !important; }}
+        .demo-project-notice__content {{ color: #880E4F; font-size: 1rem; font-weight: 500; line-height: 1.6; }}
+        .demo-project-notice__content h2 {{ margin: .1rem 0 .65rem; color: #AD1457; font-size: 1.3rem !important; }}
+        .demo-project-notice__content p {{ margin: .55rem 0; color: #880E4F; }}
+        .demo-project-notice__sections {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; margin: .95rem 0; }}
+        .demo-project-notice__sections section {{ padding: .7rem .8rem; background: rgba(255,255,255,.48); border: 1px solid rgba(194,24,91,.18); border-radius: 10px; }}
+        .demo-project-notice__sections h3 {{ margin: 0 0 .35rem; color: #AD1457; font-size: .91rem !important; font-weight: 800; letter-spacing: .01em; }}
+        .demo-project-notice__sections ul, .demo-project-notice__sections ol {{ margin: 0; padding-left: 1.1rem; }}
+        .demo-project-notice__sections li {{ margin: .22rem 0; font-size: .9rem; }}
+        .demo-project-notice__content a {{ color: #C2185B; font-weight: 800; }}
+        #stDeployButton, [data-testid='stDeployButton'] {{ display: none !important; }}
+        .st-key-demo-project-notice [data-testid='stButton'] > button {{
+            min-height: 2.4rem; padding: .5rem .85rem; border-color: #EC407A; color: #AD1457; font-weight: 700;
+        }}
+        @media (max-width: 700px) {{
+            .st-key-demo-project-notice:has(.st-key-show-demo-project-notice) {{
+                top: 0; left: 0; margin-bottom: .75rem;
+            }}
+            .demo-project-notice__sections {{ grid-template-columns: 1fr; }}
+        }}
         .dashboard-filter-note {{ color: var(--muted); font-size: .85rem; margin-top: .25rem; }}
         .st-key-dashboard-filters [data-testid='stHorizontalBlock'] {{
             display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
@@ -965,6 +1113,46 @@ def style_app():
         }}
         [data-testid='stForm'] {{ background: var(--surface); padding: 1.25rem; }}
         [class*='st-key-dashboard-card-'] {{ background: var(--surface); border-radius: 14px; }}
+        [class*='st-key-card-editor-preview-'], [class*='st-key-dashboard-proposal-card-preview'] {{
+            background: #FCF8FA; border-color: #E8BED1; border-radius: 14px;
+        }}
+        [data-testid='stDialog']:has(.card-editor-dialog) [role='dialog'] {{
+            width: min(94vw, 1320px) !important; max-width: calc(100vw - 1.5rem) !important; min-height: min(88vh, 980px);
+            overflow-x: hidden;
+        }}
+        [data-testid='stDialog']:has(.card-editor-dialog) [data-testid='stDialogContent'] {{
+            box-sizing: border-box; width: 100%; min-width: 0; padding: 1.4rem 1.65rem 1.65rem; overflow-x: hidden;
+        }}
+        .card-editor-dialog {{ display: none; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) [data-testid='stHorizontalBlock'] {{ align-items: stretch; min-width: 0; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) [data-testid='stColumn'] {{ min-width: 0; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel,
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-preview-panel {{
+            box-sizing: border-box; min-height: 24rem; height: 100%; border-radius: 16px; overflow: hidden;
+        }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel {{
+            background: linear-gradient(145deg, #0B3B2E 0%, #164D3B 100%); border-color: #0B3B2E; padding: 1.25rem;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.1);
+        }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel h4,
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stCaptionContainer'],
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stCaptionContainer'] p,
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stWidgetLabel'] p {{ color: #FFFFFF !important; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] {{
+            min-height: 14rem; background: rgba(255,255,255,.08); border-color: rgba(223,245,238,.45); padding: 1.1rem;
+        }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel .editor-submit-hint {{ color: #C8DBD2; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-preview-panel,
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-manual-panel {{
+            box-sizing: border-box; width: 100%; min-width: 0; background: #FFFFFF; border-color: #DCE4DF; border-radius: 16px; padding: 1.25rem;
+        }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-preview-panel {{ min-height: 24rem; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) [class*='st-key-card-editor-preview-'] {{
+            box-sizing: border-box; width: 100%; min-width: 0; min-height: 18.4rem; background: #FCF8FA; border-color: #E8BED1;
+        }}
+        .color-swatch {{ display: flex; align-items: center; gap: .65rem; margin: -.35rem 0 .85rem; color: var(--muted); font-size: .82rem; font-weight: 700; }}
+        .color-swatch__chip {{ width: 1.5rem; height: 1.5rem; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); flex: 0 0 auto; }}
+        .color-swatch code {{ color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }}
         [data-testid='stSidebar'] [data-testid='stForm'] {{ background: transparent; border-color: rgba(255,255,255,.2); }}
         [data-testid='stDataFrame'] {{ border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }}
         [data-testid='stMetric'] {{ background: var(--surface); border-radius: 12px; padding: 1rem 1.2rem; }}
@@ -1105,6 +1293,153 @@ def render_add_to_dashboard_dialog(document, spec, index):
     st.rerun()
 
 
+def _card_editor_draft(card_id, selected):
+    """Keep one isolated editable card draft while the dialog is open."""
+    draft_key = "dashboard_card_editor_draft"
+    current = st.session_state.get(draft_key)
+    if not current or current.get("id") != card_id:
+        st.session_state[draft_key] = {
+            "id": card_id, "title": selected["title"], "kind": selected["kind"], "color": selected["color"],
+            "sort_order": selected.get("sort_order", "original"), "text": selected.get("text", ""),
+            "decimal_places": int(selected.get("decimal_places", 0)), "value_format": selected.get("value_format", "number"),
+            "trend_direction": selected.get("trend_direction", "higher_is_better"), "layout": deepcopy(selected["layout"]),
+        }
+    return st.session_state[draft_key]
+
+
+@st.dialog(t("card_editor_title"), width="large")
+def render_card_editor_dialog(document, dashboard, page, card_id):
+    """Edit one card beside a live, unsaved rendering of that card."""
+    st.markdown("<div class='card-editor-dialog'></div>", unsafe_allow_html=True)
+    selected_index = next((index for index, card in enumerate(page["cards"]) if card["id"] == card_id), None)
+    if selected_index is None:
+        st.session_state.dashboard_card_editor = None
+        st.session_state.pop("dashboard_card_editor_draft", None)
+        st.rerun()
+    selected = normalize_card(page["cards"][selected_index])
+    draft = _card_editor_draft(card_id, selected)
+    ai_column, preview_column = st.columns([.9, 1.7], gap="large")
+    with ai_column:
+        with st.container(border=True, key="card-editor-ai-panel"):
+            st.markdown("#### " + t("dashboard_editor"))
+            st.caption(t("editor_example"))
+            with st.form(f"card-editor-command-{card_id}", clear_on_submit=True):
+                command = st.text_input(t("editor_instruction"), placeholder=t("editor_placeholder"), key=f"editor-command-{card_id}")
+                st.markdown("<div class='editor-submit-hint'>" + t("editor_submit_hint") + "</div>", unsafe_allow_html=True)
+                proposed = st.form_submit_button(t("propose_change"), type="primary", icon=":material/auto_awesome:", width="stretch")
+            if proposed:
+                pending, error = plan_dashboard_editor_command(command, dashboard, page, selected)
+                if error:
+                    st.error(error)
+                else:
+                    st.session_state.pending_dashboard_edit = pending
+                    st.rerun()
+            pending = st.session_state.get("pending_dashboard_edit")
+            if pending:
+                with st.container(border=True, key="card-editor-command-preview"):
+                    st.markdown("#### " + t("change_preview"))
+                    st.write(pending["summary"])
+                    st.caption(t("change_preview_note"))
+                    confirm_column, cancel_column = st.columns(2, gap="small")
+                    with confirm_column:
+                        if st.button(t("confirm_change"), type="primary", icon=":material/check:", width="stretch", key=f"confirm-card-command-{card_id}"):
+                            save_dashboard_snapshot(document, dashboard, pending["summary"])
+                            replacement = pending["dashboard"]
+                            dashboard["name"] = replacement["name"]
+                            dashboard["pages"] = replacement["pages"]
+                            save_dashboard(document)
+                            st.session_state.pending_dashboard_edit = None
+                            st.session_state.dashboard_card_editor = None
+                            st.session_state.pop("dashboard_card_editor_draft", None)
+                            st.session_state.dashboard_editor_notice = pending["summary"]
+                            st.rerun()
+                    with cancel_column:
+                        if st.button(t("discard_proposal"), icon=":material/close:", width="stretch", key=f"discard-card-command-{card_id}"):
+                            st.session_state.pending_dashboard_edit = None
+                            st.rerun()
+    with preview_column:
+        with st.container(border=True, key="card-editor-preview-panel"):
+            st.markdown("#### " + t("working_preview"))
+            st.caption(t("working_preview_note"))
+            preview = normalize_card({**selected, **draft, "layout": dict(draft["layout"])})
+            with st.container(border=True, key=f"card-editor-preview-{card_id}"):
+                render_card_content(preview, page, f"editor-preview-{card_id}", show_sql=False)
+            pending = st.session_state.get("pending_dashboard_edit")
+            if pending:
+                preview_dashboard = pending["dashboard"]
+                preview_page = page_by_id(preview_dashboard, page["id"])
+                preview_card = next((card for card in preview_page["cards"] if card["id"] == card_id), None) if preview_page else None
+                if preview_card:
+                    st.caption(t("change_preview"))
+                    with st.container(border=True, key="card-editor-ai-preview"):
+                        render_card_content(normalize_card(preview_card), preview_page, "card-command-preview", show_sql=False)
+    st.divider()
+    with st.container(border=True, key="card-editor-manual-panel"):
+        st.markdown("#### " + t("card_editor_settings"))
+        manual_row_one = st.columns([1.8, 1.15, 1.35], gap="medium")
+        with manual_row_one[0]:
+            draft["title"] = st.text_input(t("name"), value=draft["title"], key=f"editor-title-{card_id}")
+        with manual_row_one[1]:
+            draft["kind"] = st.selectbox(t("chart_type"), CHART_KINDS, index=CHART_KINDS.index(draft["kind"]), key=f"editor-kind-{card_id}")
+        with manual_row_one[2]:
+            draft["color"] = st.selectbox(
+                t("color"), COLORS, index=COLORS.index(draft["color"]),
+                format_func=lambda color: COLOR_OPTION_LABELS[color], key=f"editor-color-{card_id}",
+            )
+            st.markdown(
+                f"<div class='color-swatch'><span class='color-swatch__chip' style='background:{draft['color']}'></span>"
+                f"{t('selected_color')}: <code>{draft['color']}</code></div>", unsafe_allow_html=True,
+            )
+        manual_row_two = st.columns(4, gap="medium")
+        with manual_row_two[0]:
+            draft["sort_order"] = st.selectbox(t("sort"), ["original", "ascending", "descending"], index=["original", "ascending", "descending"].index(draft["sort_order"]), key=f"editor-sort-{card_id}")
+        with manual_row_two[1]:
+            draft["layout"]["width"] = st.selectbox(t("block_width"), [12, 6, 4, 3], index=[12, 6, 4, 3].index(draft["layout"]["width"]), key=f"editor-width-{card_id}")
+        with manual_row_two[2]:
+            draft["decimal_places"] = int(st.number_input(t("decimal_places"), min_value=0, max_value=4, value=draft["decimal_places"], step=1, key=f"editor-decimals-{card_id}"))
+        with manual_row_two[3]:
+            draft["value_format"] = st.selectbox(t("value_format"), ["number", "currency_czk", "percent"], index=["number", "currency_czk", "percent"].index(draft["value_format"]), key=f"editor-format-{card_id}")
+        manual_row_three = st.columns([1, 1, 2], gap="medium")
+        with manual_row_three[0]:
+            draft["layout"]["row"] = int(st.number_input(t("layout_row"), min_value=0, value=draft["layout"]["row"], step=1, key=f"editor-row-{card_id}"))
+        with manual_row_three[1]:
+            draft["trend_direction"] = st.selectbox(t("trend_evaluation"), ["higher_is_better", "lower_is_better", "neutral"], index=["higher_is_better", "lower_is_better", "neutral"].index(draft["trend_direction"]), key=f"editor-trend-{card_id}")
+        with manual_row_three[2]:
+            if draft["kind"] == "text":
+                draft["text"] = st.text_area(t("comment_text"), value=draft["text"], key=f"editor-text-{card_id}")
+        save_column, discard_column = st.columns(2, gap="small")
+        with save_column:
+            if st.button(t("save_changes"), type="primary", icon=":material/save:", width="stretch"):
+                saved_draft = {
+                    **draft,
+                    "title": st.session_state[f"editor-title-{card_id}"],
+                    "kind": st.session_state[f"editor-kind-{card_id}"],
+                    "color": st.session_state[f"editor-color-{card_id}"],
+                    "sort_order": st.session_state[f"editor-sort-{card_id}"],
+                    "decimal_places": st.session_state[f"editor-decimals-{card_id}"],
+                    "value_format": st.session_state[f"editor-format-{card_id}"],
+                    "trend_direction": st.session_state[f"editor-trend-{card_id}"],
+                    "layout": {
+                        "row": st.session_state[f"editor-row-{card_id}"],
+                        "width": st.session_state[f"editor-width-{card_id}"],
+                    },
+                }
+                if saved_draft["kind"] == "text":
+                    saved_draft["text"] = st.session_state[f"editor-text-{card_id}"]
+                save_dashboard_snapshot(document, dashboard, f"Ruční úprava karty „{selected['title']}“")
+                page["cards"][selected_index] = normalize_card({**selected, **saved_draft, "layout": dict(saved_draft["layout"])})
+                save_dashboard(document)
+                st.session_state.dashboard_card_editor = None
+                st.session_state.pop("dashboard_card_editor_draft", None)
+                st.session_state.dashboard_editor_notice = t("card_updated")
+                st.rerun()
+        with discard_column:
+            if st.button(t("discard_changes"), icon=":material/close:", width="stretch"):
+                st.session_state.dashboard_card_editor = None
+                st.session_state.pop("dashboard_card_editor_draft", None)
+                st.rerun()
+
+
 def render_chat_item(item, index):
     with st.chat_message(item["role"]):
         if item["role"] == "user":
@@ -1178,6 +1513,23 @@ def render_chat_item(item, index):
         elif st.session_state.get(add_open_key) == index:
             render_add_to_dashboard_dialog(load_dashboard(), spec, index)
         sql_card(result["sql"], len(data))
+
+
+def render_analytics_chat_form():
+    with st.form("analytics_chat_form", clear_on_submit=True, enter_to_submit=True):
+        prompt = st.text_input(
+            t("question"),
+            placeholder=t("question_placeholder"),
+            help=t("question_help"),
+        )
+        answer_column, visual_column = st.columns([1, 1], gap="small")
+        answer = answer_column.form_submit_button(
+            t("show_answer"), type="primary", icon=":material/send:", use_container_width=True,
+        )
+        visual = visual_column.form_submit_button(
+            t("create_chart"), icon=":material/bar_chart:", use_container_width=True,
+        )
+    return prompt, answer, visual
 
 
 def render_analytics_chat(document):
@@ -1261,15 +1613,7 @@ def render_analytics_chat(document):
         st.warning(st.session_state.chat_notice)
         st.session_state.chat_notice = None
 
-    with st.form("analytics_chat_form", clear_on_submit=True, enter_to_submit=True):
-        prompt = st.text_input(
-            t("question"),
-            placeholder=t("question_placeholder"),
-            help=t("question_help"),
-        )
-        answer_column, visual_column = st.columns([1, 1], gap="small")
-        answer = answer_column.form_submit_button(t("show_answer"), type="primary", icon=":material/send:", use_container_width=True)
-        visual = visual_column.form_submit_button(t("create_chart"), icon=":material/bar_chart:", use_container_width=True)
+    prompt, answer, visual = render_analytics_chat_form()
 
     if not (answer or visual):
         return
@@ -1363,7 +1707,32 @@ def render_dashboard(document, dashboard):
         st.session_state.active_dashboard_page = page_ids[0]
     page = page_by_id(dashboard, st.session_state.active_dashboard_page)
 
-    st.title(dashboard["name"])
+    dashboard_title_column, dashboard_rename_column = st.columns([6, 1], gap="small", vertical_alignment="center")
+    with dashboard_title_column:
+        st.title(dashboard["name"])
+    with dashboard_rename_column:
+        with st.popover(t("rename_dashboard"), icon=":material/edit:"):
+            with st.form(f"rename-dashboard-{dashboard['id']}", enter_to_submit=False):
+                dashboard_name = st.text_input(
+                    t("rename_dashboard_name"), value=dashboard["name"], max_chars=60,
+                    key=f"rename-dashboard-name-{dashboard['id']}",
+                )
+                if st.form_submit_button(t("rename_dashboard"), type="primary", icon=":material/check:", width="stretch"):
+                    try:
+                        candidate = deepcopy(document)
+                        renamed_dashboard = rename_dashboard(candidate, dashboard["id"], dashboard_name)
+                    except ValueError:
+                        st.error(
+                            t("dashboard_name_required")
+                            if not dashboard_name.strip()
+                            else t("dashboard_name_exists")
+                        )
+                    else:
+                        save_dashboard_snapshot(document, dashboard, t("rename_dashboard"))
+                        dashboard["name"] = renamed_dashboard["name"]
+                        save_dashboard(document)
+                        st.session_state.dashboard_editor_notice = t("dashboard_renamed", dashboard=renamed_dashboard["name"])
+                        st.rerun()
     with st.container(horizontal=True, vertical_alignment="top", key="dashboard-page-navigation"):
         page_tabs = st.tabs(
             [item["name"] for item in dashboard["pages"]],
@@ -1433,53 +1802,26 @@ def render_dashboard(document, dashboard):
     history_column, undo_column = st.columns([4, 1], vertical_alignment="center")
     with history_column:
         versions = [item for item in document.get("dashboard_history", []) if item.get("dashboard", {}).get("id") == dashboard["id"]]
-        st.caption(f"Historie editoru: {len(versions)} uložených verzí (max. 30).")
+        st.caption(t("editor_history", count=len(versions)))
     with undo_column:
-        if st.button("Vrátit poslední změnu", icon=":material/undo:", disabled=not versions, width="stretch"):
+        if st.button(t("undo_last_change"), icon=":material/undo:", disabled=not versions, width="stretch"):
             restored = restore_latest_dashboard_snapshot(document, dashboard["id"])
             if restored:
                 st.session_state.selected_dashboard_card = None
-                st.session_state.dashboard_editor_notice = "Poslední potvrzená změna byla vrácena."
+                st.session_state.dashboard_editor_notice = t("undo_completed")
                 save_dashboard(document)
                 st.rerun()
-    editor_column, chat_column = st.columns([1, 1], gap="large")
-    with editor_column:
-        st.markdown("### " + t("edit_card"))
-        if not selected:
-            st.caption(t("select_card"))
-        else:
-            with st.form(f"card-editor-{selected['id']}"):
-                title = st.text_input(t("name"), selected["title"])
-                kind = st.selectbox(t("chart_type"), CHART_KINDS, index=CHART_KINDS.index(selected["kind"]))
-                color = st.selectbox(t("color"), COLORS, index=COLORS.index(selected["color"]) if selected["color"] in COLORS else 0)
-                sort_order = st.selectbox(t("sort"), ["original", "ascending", "descending"], index=["original", "ascending", "descending"].index(selected.get("sort_order", "original")))
-                layout_width = st.selectbox("Šířka bloku", [12, 6, 4, 3], index=[12, 6, 4, 3].index(selected["layout"]["width"]))
-                layout_row = st.number_input("Řádek rozvržení", min_value=0, value=selected["layout"]["row"], step=1)
-                text = st.text_area("Text komentáře", selected.get("text", "")) if selected["kind"] == "text" else selected.get("text", "")
-                decimals = st.number_input("Desetinná místa", min_value=0, max_value=4, value=int(selected.get("decimal_places", 0)), step=1)
-                value_format = st.selectbox("Formát hodnoty", ["number", "currency_czk", "percent"], index=["number", "currency_czk", "percent"].index(selected.get("value_format", "number")))
-                trend_direction = st.selectbox("Vyhodnocení trendu", ["higher_is_better", "lower_is_better", "neutral"], index=["higher_is_better", "lower_is_better", "neutral"].index(selected.get("trend_direction", "higher_is_better")))
-                if st.form_submit_button(t("save_changes"), type="primary", icon=":material/save:", use_container_width=True):
-                    save_dashboard_snapshot(document, dashboard, f"Ruční úprava karty „{selected['title']}“")
-                    selected.update({
-                        "title": title.strip() or selected["title"], "kind": kind, "color": color,
-                        "sort_order": sort_order, "text": text, "decimal_places": decimals,
-                        "value_format": value_format, "trend_direction": trend_direction,
-                        "layout": {"row": int(layout_row), "width": layout_width},
-                    })
-                    save_dashboard(document)
-                    st.success(t("card_updated"))
-                    st.rerun()
-    with chat_column:
-        st.markdown("### " + t("dashboard_editor"))
+    st.markdown("### " + t("dashboard_editor"))
+    with st.container(border=True, key="dashboard-ai-editor"):
         st.caption(t("editor_example"))
         if selected:
-            st.info(f"Aktuálně vybraná karta: **{selected['title']}**")
+            st.info(t("selected_card", title=selected["title"]))
         else:
-            st.warning("Nejdřív u požadované karty klikněte na „Upravit“. Pokyny pro stránku a přidání bloků fungují i bez výběru.")
+            st.warning(t("select_card_for_editor"))
         with st.form(f"dashboard-editor-{page['id']}", clear_on_submit=True):
             command = st.text_input(t("editor_instruction"), placeholder=t("editor_placeholder"))
-            submitted = st.form_submit_button("Navrhnout změnu", type="primary", icon=":material/auto_awesome:", use_container_width=True)
+            st.markdown("<div class='editor-submit-hint'>" + t("editor_submit_hint") + "</div>", unsafe_allow_html=True)
+            submitted = st.form_submit_button(t("propose_change"), type="primary", icon=":material/auto_awesome:", use_container_width=True)
         if submitted:
             pending, error = plan_dashboard_editor_command(command, dashboard, page, selected)
             if error:
@@ -1490,12 +1832,18 @@ def render_dashboard(document, dashboard):
         pending = st.session_state.get("pending_dashboard_edit")
         if pending:
             with st.container(border=True, key="dashboard-edit-preview"):
-                st.markdown("#### Náhled navržené změny")
+                st.markdown("#### " + t("change_preview"))
                 st.write(pending["summary"])
-                st.caption("Změna se uloží až po potvrzení. Před uložením vznikne verze pro Undo.")
+                st.caption(t("change_preview_note"))
+                preview_dashboard = pending["dashboard"]
+                preview_page = page_by_id(preview_dashboard, page["id"])
+                preview_card = next((card for card in preview_page["cards"] if card["id"] == selected_card_id), None) if preview_page and selected_card_id else None
+                if preview_card:
+                    with st.container(border=True, key="dashboard-proposal-card-preview"):
+                        render_card_content(normalize_card(preview_card), preview_page, "proposal-preview", show_sql=False)
                 confirm_column, cancel_column = st.columns(2, gap="small")
                 with confirm_column:
-                    if st.button("Potvrdit změnu", type="primary", icon=":material/check:", width="stretch"):
+                    if st.button(t("confirm_change"), type="primary", icon=":material/check:", width="stretch"):
                         save_dashboard_snapshot(document, dashboard, pending["summary"])
                         replacement = pending["dashboard"]
                         dashboard["name"] = replacement["name"]
@@ -1507,31 +1855,24 @@ def render_dashboard(document, dashboard):
                         st.session_state.dashboard_editor_notice = pending["summary"]
                         st.rerun()
                 with cancel_column:
-                    if st.button("Zahodit návrh", icon=":material/close:", width="stretch"):
+                    if st.button(t("discard_proposal"), icon=":material/close:", width="stretch"):
                         st.session_state.pending_dashboard_edit = None
                         st.rerun()
         if st.session_state.get("dashboard_editor_notice"):
             st.success(st.session_state.dashboard_editor_notice)
             st.session_state.dashboard_editor_notice = None
+    editor_card_id = st.session_state.get("dashboard_card_editor")
+    if editor_card_id:
+        render_card_editor_dialog(document, dashboard, page, editor_card_id)
 
 
 style_app()
 if "language" not in st.session_state:
     st.session_state.language = "en"
+st.session_state.setdefault("demo_project_notice_hidden", False)
 document = load_dashboard()
 with st.sidebar:
-    st.markdown(
-        """<div class='biizy-brand'>
-        <svg class='biizy-mark' viewBox='0 0 48 48' aria-hidden='true'>
-          <circle cx='24' cy='24' r='22' fill='#DDF5EE'/>
-          <path d='M15 28 L23 18 L33 25' fill='none' stroke='#0B3B2E' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/>
-          <circle cx='15' cy='28' r='4' fill='#C2185B'/><circle cx='23' cy='18' r='4' fill='#0B3B2E'/><circle cx='33' cy='25' r='4' fill='#2F6B5A'/>
-        </svg>
-        <div><div class='biizy-name'>Biizy</div><div class='biizy-tagline'>BI easy</div></div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
-    st.caption(t("workspace"))
+    render_sidebar_brand()
     if st.button(t("analytics_chat"), icon=":material/chat:", use_container_width=True):
         st.session_state.workspace_view = "chat"
         st.session_state.dashboard_menu_open = False
@@ -1621,16 +1962,8 @@ with st.sidebar:
 if st.session_state.pop("demo_reset_notice", None):
     st.success(t("reset_demo_done"))
 
-_, language_column = st.columns([7, 2], vertical_alignment="center")
-with language_column:
-    render_language_switcher()
-
-st.markdown(
-    f"""<div class='demo-data-notice'>
-    <svg viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3 2.8 19h18.4L12 3Z' fill='#0E7490'/><path d='M12 8v5.5M12 16.5v.1' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>
-    <span>{escape(t('demo_data_notice'))}</span></div>""",
-    unsafe_allow_html=True,
-)
+render_language_switcher()
+render_demo_project_notice()
 
 if st.session_state.get("workspace_view") == "dashboard":
     active_dashboard_id = st.session_state.get("active_dashboard_id")

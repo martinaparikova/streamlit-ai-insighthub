@@ -10,3 +10,9 @@ __pdf_review_test3/
 
 # Local PDF samples used only during development
 test*.pdf
+
+# Local Streamlit output and accidental terminal captures
+streamlit-*.err.log
+streamlit-*.out.log
+treamlit run app.py
+ersmartiPROJEKTYSTREAMLIT TEST

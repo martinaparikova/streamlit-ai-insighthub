@@ -207,6 +207,21 @@ def add_dashboard(document, name, overview_name="Přehled"):
     return dashboard
 
 
+def rename_dashboard(document, dashboard_id, name):
+    """Rename one dashboard while keeping names unique across the workspace."""
+    dashboard = dashboard_by_id(document, dashboard_id)
+    normalized_name = (name or "").strip()[:60].strip()
+    if not normalized_name:
+        raise ValueError("Enter a dashboard name.")
+    if any(
+        item["id"] != dashboard_id and item["name"].strip().casefold() == normalized_name.casefold()
+        for item in document["dashboards"]
+    ):
+        raise ValueError("A dashboard with this name already exists.")
+    dashboard["name"] = normalized_name
+    return dashboard
+
+
 def dashboard_by_id(document, dashboard_id):
     dashboard = next((item for item in document["dashboards"] if item["id"] == dashboard_id), None)
     if dashboard is None:
@@ -363,7 +378,7 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
 
     rename_match = re.search(
         r"(?:uprav|změň|zmen|nastav|přejmenuj|prejmenuj|rename|set|change)\s+"
-        r"(?:název|nazev|jméno|jmeno|title)\s*(?:grafu|tabulky|karty|chart|table|card)?\s*"
+        r"(?:it\s+)?(?:název|nazev|jméno|jmeno|title)?\s*(?:grafu|tabulky|karty|chart|table|card)?\s*"
         r"(?:na|to)\s+(.+)",
         command,
         flags=re.I,

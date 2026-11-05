@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from PIL import Image
 from streamlit.testing.v1 import AppTest
 
 from dashboard import add_dashboard, add_page, normalize_workspace
@@ -77,6 +78,41 @@ class FrontendTests(unittest.TestCase):
         buttons = {item.label: item.proto.type for item in self.app.button}
         self.assertEqual(buttons["Zobrazit odpověď"], "primary")
         self.assertEqual(buttons["Vytvořit graf"], "secondary")
+
+    def test_work_in_progress_notice_is_visible_by_default_and_can_be_hidden(self):
+        self.assert_no_errors()
+        notice = next(
+            item.value for item in self.app.markdown
+            if "demo-project-notice__content" in item.value and "<h2>" in item.value
+        )
+        self.assertIn("Biizy je work in progress", notice)
+        self.assertIn("Co aplikace umí", notice)
+        self.assertIn("Jak na to", notice)
+        self.assertIn("Plány", notice)
+        self.assertIn("Přidejte ho na vybranou stránku dashboardu", notice)
+        self.assertIn("martina.parikova@gmail.com", notice)
+        self.assertNotIn(":material/construction:", notice)
+        with Image.open(Path(__file__).parent / "assets" / "biizy_logo.png") as logo:
+            self.assertEqual(logo.mode, "RGBA")
+            self.assertLess(logo.getchannel("A").getextrema()[0], 255)
+        self.assertTrue(any(item.label == "Skrýt" for item in self.app.button))
+
+        next(item for item in self.app.button if item.label == "Skrýt").click().run()
+
+        self.assert_no_errors()
+        self.assertFalse(any(
+            "demo-project-notice__content" in item.value and "<h2>" in item.value
+            for item in self.app.markdown
+        ))
+        self.assertTrue(any(item.label == "Informace o projektu" for item in self.app.button))
+
+        next(item for item in self.app.button if item.label == "Informace o projektu").click().run()
+
+        self.assert_no_errors()
+        self.assertTrue(any(
+            "demo-project-notice__content" in item.value and "<h2>" in item.value
+            for item in self.app.markdown
+        ))
 
     def test_answer_preserves_native_chat_roles(self):
         self.ask("How many overdue invoices do we have?")
@@ -247,11 +283,20 @@ LIMIT 5""",
         active_button = next(item for item in self.app.sidebar.button if item.label == "Finance")
         self.assertEqual(active_button.proto.type, "primary")
 
+        self.assertTrue(any(item.proto.popover.label == "Přejmenovat" for item in self.app.get("popover")))
+        next(item for item in self.app.text_input if item.label == "Název dashboardu").input("Finance 2026")
+        next(item for item in self.app.button if item.label == "Přejmenovat").click().run()
+        self.assert_no_errors()
+        saved = json.loads(self.store.read_text(encoding="utf-8"))
+        finance = next(item for item in saved["dashboards"] if item["id"] == finance["id"])
+        self.assertEqual(finance["name"], "Finance 2026")
+        self.assertEqual(self.app.title[0].value, "Finance 2026")
+
         next(item for item in self.app.text_input if item.label == "Název nové stránky").input("Tržby")
         next(item for item in self.app.button if item.label == "Přidat stránku").click().run()
         self.assert_no_errors()
         saved = json.loads(self.store.read_text(encoding="utf-8"))
-        finance = next(item for item in saved["dashboards"] if item["name"] == "Finance")
+        finance = next(item for item in saved["dashboards"] if item["name"] == "Finance 2026")
         self.assertEqual([page["name"] for page in finance["pages"]], ["Přehled", "Tržby"])
         self.assertEqual([page["name"] for page in saved["dashboards"][0]["pages"]], ["Přehled"])
         self.assertEqual(self.app.header[0].value, "Tržby")
@@ -294,6 +339,14 @@ LIMIT 5""",
         self.assert_no_errors()
         self.assertEqual(self.app.title[0].value, "Můj dashboard")
         self.assertFalse(any(item.label == "Uložit" for item in self.app.button))
+
+    def test_dashboard_rename_uses_the_rename_label(self):
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+
+        self.assert_no_errors()
+        self.assertTrue(any(item.proto.popover.label == "Přejmenovat" for item in self.app.get("popover")))
+        self.assertFalse(any(item.label == "Uložit název" for item in self.app.button))
 
     def test_chat_adds_chart_to_selected_dashboard_and_page(self):
         document = normalize_workspace(None)
@@ -394,6 +447,44 @@ LIMIT 5""",
         self.assertTrue(any(item.proto.popover.label == "New page" for item in self.app.get("popover")))
         self.assertEqual(len(self.app.sidebar.tabs), 0)
 
+    def test_dashboard_editor_selected_card_status_is_english(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["cards"] = [{
+            "id": "revenue-chart", "title": "Revenue by segment", "kind": "bar",
+            "sql": "SELECT 1 AS value", "x": "value", "y": "value",
+        }]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+
+        self.app.button(key="language-en").click().run()
+        next(item for item in self.app.button if item.label == "Dashboards").click().run()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        next(item for item in self.app.button if item.label == "Edit").click().run()
+        self.assert_no_errors()
+        self.assertTrue(any("Currently selected card: **Revenue by segment**" in item.value for item in self.app.info))
+        self.assertFalse(any("Aktuálně vybraná karta" in item.value for item in self.app.info))
+
+    def test_english_dashboard_editor_renames_selected_card_with_local_fallback(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["cards"] = [{
+            "id": "revenue-chart", "title": "Revenue", "kind": "bar",
+            "sql": "SELECT 1 AS value", "x": "value", "y": "value",
+        }]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+
+        self.app.button(key="language-en").click().run()
+        next(item for item in self.app.button if item.label == "Dashboards").click().run()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        next(item for item in self.app.button if item.label == "Edit").click().run()
+        next(item for item in self.app.text_input if item.label == "Editor instruction").input("Rename it to Segments by Revenue")
+        next(item for item in self.app.button if item.label == "Propose change").click().run()
+        self.assert_no_errors()
+        self.assertTrue(any(item.label == "Confirm change" for item in self.app.button))
+        self.assertTrue(any("Card “Segments by Revenue” was updated." in item.value for item in self.app.markdown))
+
     def test_editor_adds_page_without_modifying_other_dashboards(self):
         document = normalize_workspace(None)
         add_dashboard(document, "Finance")
@@ -456,6 +547,27 @@ LIMIT 5""",
         card = json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]
         self.assertEqual(card["title"], "Number of invoices overdue")
         self.assertEqual(card["kind"], "bar")
+
+    def test_card_editor_dialog_previews_and_saves_only_after_confirmation(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["cards"] = [{
+            "id": "revenue-chart", "title": "Revenue", "kind": "bar",
+            "sql": "SELECT 1 AS value", "x": "value", "y": "value",
+        }]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        next(item for item in self.app.button if item.label == "Upravit").click().run()
+        self.assert_no_errors()
+        self.assertTrue(any(item.label == "Uložit úpravy" for item in self.app.button))
+        next(item for item in self.app.text_input if item.label == "Název").input("Nové tržby").run()
+        self.assertEqual(json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]["title"], "Revenue")
+        next(item for item in self.app.button if item.label == "Uložit úpravy").click().run()
+        self.assert_no_errors()
+        self.assertEqual(json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]["title"], "Nové tržby")
 
     def test_dashboard_editor_cancel_and_undo_keep_history_safe(self):
         document = normalize_workspace(None)
