@@ -101,6 +101,21 @@ def upsert_item(model, collection, item):
     return normalize_semantic_model(updated)
 
 
+def validate_relationship(model, relationship):
+    """Ensure a relationship references two distinct tables from the current model."""
+    normalized = normalize_semantic_model(model)
+    table_names = {item["technical_name"] for item in normalized["tables"]}
+    from_table = str(relationship.get("from_table") or "").strip()
+    to_table = str(relationship.get("to_table") or "").strip()
+    if from_table not in table_names or to_table not in table_names:
+        raise ValueError("The relationship must reference tables in the semantic model.")
+    if from_table == to_table:
+        raise ValueError("The relationship must connect two different tables.")
+    if not str(relationship.get("from_column") or "").strip() or not str(relationship.get("to_column") or "").strip():
+        raise ValueError("The relationship must include both join columns.")
+    return True
+
+
 def delete_item(model, collection, identifier):
     updated = normalize_semantic_model(model)
     updated[collection] = [item for item in updated[collection] if item["id"] != identifier]

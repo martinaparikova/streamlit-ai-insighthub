@@ -19,6 +19,7 @@ Rozšířit analytický chat o odpovědi nad business znalostmi a definicemi, ne
 - [x] Analytický chat odpovídá bez SQL na otázky k tabulkám, vztahům, metrikám, pojmům a pravidlu overdue.
 - [x] Placeholder/preview budoucího AI draftu.
 - [x] Migrace starších workspace dokumentů na verzi 5 bez ztráty dashboardů a chatů.
+- [x] Modalní **Zobrazit schéma modelu** s diagramem tabulek, seznamem a editací/přidáním vztahů.
 
 Limity etapy 1:
 

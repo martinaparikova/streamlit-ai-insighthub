@@ -147,7 +147,16 @@ class FrontendTests(unittest.TestCase):
         self.assert_no_errors()
         self.assertTrue(any(item.value == "Semantický model" for item in self.app.title))
         self.assertTrue(any(item.label == "Vytvořit AI draft (brzy)" for item in self.app.button))
+        self.assertTrue(any(item.label == "Zobrazit schéma modelu" for item in self.app.button))
         self.assertEqual(len(self.app.metric), 4)
+
+    def test_schema_dialog_renders_relationship_editor_and_adds_draft(self):
+        next(item for item in self.app.button if item.label == "Semantický model").click().run()
+        next(item for item in self.app.button if item.label == "Zobrazit schéma modelu").click().run()
+
+        self.assert_no_errors()
+        self.assertTrue(any(item.label == "Přidat jako draft" for item in self.app.button))
+        self.assertTrue(any("Firma → Faktury" in item.label for item in self.app.expander))
 
     def test_catalog_error_retries_with_database_feedback(self):
         with patch(

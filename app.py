@@ -43,7 +43,7 @@ from dashboard import (
     restore_latest_dashboard_snapshot,
     save_dashboard_snapshot,
 )
-from ontology import answer_knowledge_question, draft_preview, normalize_semantic_model, upsert_item
+from ontology import answer_knowledge_question, draft_preview, normalize_semantic_model, upsert_item, validate_relationship
 import duckdb
 import numpy as np
 import pandas as pd
@@ -1189,6 +1189,20 @@ def style_app():
         .chat-tooltip p {{ margin: 0 0 .65rem; font-size: inherit; }}
         .chat-tooltip p:last-child {{ margin: 0; color: var(--muted); }}
         .chat-info:hover .chat-tooltip, .chat-info:focus-within .chat-tooltip {{ display: block; }}
+        .semantic-schema-dialog {{ display: none; }}
+        [data-testid='stDialog']:has(.semantic-schema-dialog) [role='dialog'] {{ width: min(94vw, 1120px) !important; max-width: calc(100vw - 1.5rem) !important; }}
+        [data-testid='stDialog']:has(.semantic-schema-dialog) [data-testid='stDialogContent'] {{ padding: 1.35rem 1.55rem 1.55rem; }}
+        .schema-canvas {{ display: grid; grid-template-columns: minmax(0, 1fr) 4.25rem minmax(0, 1fr); gap: .75rem; align-items: center; padding: 1.25rem; background: #F2F8F5; border: 1px solid #D5E6DE; border-radius: 16px; }}
+        .schema-node {{ min-width: 0; background: #FFFFFF; border: 1px solid #B7CEC4; border-radius: 14px; box-shadow: 0 5px 16px rgba(11,59,46,.08); overflow: hidden; }}
+        .schema-node__header {{ padding: .8rem 1rem; background: #0B3B2E; color: #FFFFFF; }}
+        .schema-node__header strong, .schema-node__header code {{ display: block; color: inherit; }}
+        .schema-node__header code {{ margin-top: .15rem; opacity: .82; font-size: .78rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
+        .schema-node__body {{ padding: .85rem 1rem; color: #35574B; font-size: .84rem; line-height: 1.6; }}
+        .schema-node__key {{ color: #AD1457; font-weight: 800; }}
+        .schema-edge {{ min-width: 0; color: #0B3B2E; text-align: center; font-size: .76rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }}
+        .schema-edge::before {{ content: '⟶'; display: block; color: #C2185B; font-size: 1.55rem; line-height: 1; }}
+        .schema-children {{ display: grid; gap: 1rem; }}
+        @media (max-width: 700px) {{ .schema-canvas {{ grid-template-columns: 1fr; }} .schema-edge::before {{ content: '↓'; }} }}
         .st-key-analytics_chat_form {{ padding: .8rem 1rem; }}
         @media (max-width: 700px) {{
             .block-container {{ padding: 1.25rem 1rem 2rem; }}
@@ -1736,8 +1750,122 @@ def _semantic_status_options():
     return ["approved", "draft"]
 
 
-def _semantic_status_label(status):
-    return "Schváleno" if status == "approved" and st.session_state.get("language") == "cs" else status
+def _schema_node_html(table, relationship_columns=()):
+    columns = "".join(
+        f"<div class='schema-node__key'>{escape(column)}</div>"
+        for column in relationship_columns
+    ) or "<div>Bez navázaných klíčů</div>"
+    grain = escape(table.get("grain") or table.get("description") or "")
+    return (
+        "<div class='schema-node'>"
+        f"<div class='schema-node__header'><strong>{escape(table['name'])}</strong><code>{escape(table['technical_name'])}</code></div>"
+        f"<div class='schema-node__body'>{columns}<div>{grain}</div></div>"
+        "</div>"
+    )
+
+
+def render_semantic_schema_diagram(model):
+    """Render a lightweight, responsive ER overview from the stored relationships."""
+    tables_by_name = {item["technical_name"]: item for item in model["tables"]}
+    outgoing = {}
+    for relationship in model["relationships"]:
+        outgoing.setdefault(relationship["from_table"], []).append(relationship)
+    roots = [name for name in outgoing if name in tables_by_name] or list(tables_by_name)
+    rendered = set()
+    for source_name in roots:
+        if source_name in rendered or source_name not in outgoing:
+            continue
+        rendered.add(source_name)
+        relationships = outgoing[source_name]
+        source_columns = sorted({item["from_column"] for item in relationships})
+        targets = []
+        edge_labels = []
+        for relationship in relationships:
+            target = tables_by_name.get(relationship["to_table"])
+            if target is None:
+                continue
+            targets.append(_schema_node_html(target, [relationship["to_column"]]))
+            edge_labels.append(
+                f"{escape(relationship.get('cardinality', 'n/a'))}<br><small>{escape(relationship['from_column'])} → {escape(relationship['to_column'])}</small>"
+            )
+        if not targets:
+            continue
+        st.markdown(
+            "<div class='schema-canvas'>"
+            f"{_schema_node_html(tables_by_name[source_name], source_columns)}"
+            f"<div class='schema-edge'>{'<hr>'.join(edge_labels)}</div>"
+            f"<div class='schema-children'>{''.join(targets)}</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    unconnected = [item for name, item in tables_by_name.items() if name not in rendered and name not in {relationship["to_table"] for relationship in model["relationships"]}]
+    if unconnected:
+        st.caption("Tabulky bez vztahu: " + ", ".join(f"{item['name']} (`{item['technical_name']}`)" for item in unconnected))
+
+
+def _save_semantic_relationship(document, model, relationship):
+    validate_relationship(model, relationship)
+    document["semantic_model"] = upsert_item(model, "relationships", relationship)
+    save_dashboard(document)
+
+
+@st.dialog("Schéma modelu", width="large")
+def render_semantic_schema_dialog(document):
+    """Show the semantic ER overview and allow safe relationship editing."""
+    st.markdown("<div class='semantic-schema-dialog'></div>", unsafe_allow_html=True)
+    model = normalize_semantic_model(document.get("semantic_model"))
+    document["semantic_model"] = model
+    cs = st.session_state.get("language") == "cs"
+    st.caption(
+        "Diagram vychází z aktuálně uloženého semantického modelu." if cs
+        else "The diagram is generated from the currently saved semantic model."
+    )
+    diagram_tab, relationships_tab = st.tabs(["Diagram", "Vztahy" if cs else "Relationships"])
+    with diagram_tab:
+        render_semantic_schema_diagram(model)
+    with relationships_tab:
+        table_names = [item["technical_name"] for item in model["tables"]]
+        labels = {item["technical_name"]: f"{item['name']} · {item['technical_name']}" for item in model["tables"]}
+        for item in model["relationships"]:
+            with st.expander(item["name"], expanded=False):
+                with st.form(f"schema-relationship-{item['id']}"):
+                    name = st.text_input("Název vztahu" if cs else "Relationship name", value=item["name"])
+                    description = st.text_area("Popis" if cs else "Description", value=item["description"])
+                    left, right = st.columns(2)
+                    from_table = left.selectbox("Zdrojová tabulka" if cs else "From table", table_names, index=table_names.index(item["from_table"]), format_func=labels.get)
+                    from_column = left.text_input("Zdrojový sloupec" if cs else "From column", value=item["from_column"])
+                    to_table = right.selectbox("Cílová tabulka" if cs else "To table", table_names, index=table_names.index(item["to_table"]), format_func=labels.get)
+                    to_column = right.text_input("Cílový sloupec" if cs else "To column", value=item["to_column"])
+                    cardinalities = ["1:1", "1:N", "N:1", "N:M"]
+                    cardinality = st.selectbox("Kardinalita" if cs else "Cardinality", cardinalities, index=cardinalities.index(item.get("cardinality", "1:N")))
+                    status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]), key=f"schema-status-{item['id']}")
+                    if st.form_submit_button("Uložit vztah" if cs else "Save relationship", icon=":material/save:"):
+                        candidate = {**item, "name": name, "description": description, "from_table": from_table, "from_column": from_column, "to_table": to_table, "to_column": to_column, "cardinality": cardinality, "status": status}
+                        try:
+                            _save_semantic_relationship(document, model, candidate)
+                        except ValueError as error:
+                            st.error(str(error))
+                        else:
+                            st.rerun()
+        st.divider()
+        st.subheader("Přidat vztah" if cs else "Add relationship")
+        with st.form("schema-add-relationship", clear_on_submit=True):
+            name = st.text_input("Název vztahu" if cs else "Relationship name", placeholder="Firma → Nová tabulka" if cs else "Company → New table", key="schema-add-relationship-name")
+            description = st.text_area("Popis" if cs else "Description", key="schema-add-relationship-description")
+            left, right = st.columns(2)
+            from_table = left.selectbox("Zdrojová tabulka" if cs else "From table", table_names, format_func=labels.get, key="schema-add-relationship-from-table")
+            from_column = left.text_input("Zdrojový sloupec" if cs else "From column", key="schema-add-relationship-from-column")
+            to_table = right.selectbox("Cílová tabulka" if cs else "To table", table_names, index=min(1, len(table_names) - 1), format_func=labels.get, key="schema-add-relationship-to-table")
+            to_column = right.text_input("Cílový sloupec" if cs else "To column", key="schema-add-relationship-to-column")
+            cardinality = st.selectbox("Kardinalita" if cs else "Cardinality", ["1:1", "1:N", "N:1", "N:M"], index=1, key="schema-add-relationship-cardinality")
+            if st.form_submit_button("Přidat jako draft" if cs else "Add as draft", icon=":material/add:"):
+                candidate = {"name": name, "description": description, "from_table": from_table, "from_column": from_column, "to_table": to_table, "to_column": to_column, "cardinality": cardinality, "status": "draft"}
+                try:
+                    _save_semantic_relationship(document, model, candidate)
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.rerun()
 
 
 def render_semantic_model(document):
@@ -1755,6 +1883,8 @@ def render_semantic_model(document):
     summary[1].metric("Vztahy" if cs else "Relationships", len(model["relationships"]))
     summary[2].metric("Metriky" if cs else "Metrics", len(model["metrics"]))
     summary[3].metric("Pravidla" if cs else "Rules", len(model["rules"]))
+    if st.button("Zobrazit schéma modelu" if cs else "View model schema", icon=":material/account_tree:"):
+        render_semantic_schema_dialog(document)
     with st.container(border=True):
         st.subheader("AI draft" if cs else "AI draft")
         st.write(draft_preview(model))
@@ -1771,7 +1901,7 @@ def render_semantic_model(document):
                     technical_name = st.text_input("Technický název" if cs else "Technical name", value=item["technical_name"])
                     description = st.text_area("Popis" if cs else "Description", value=item["description"])
                     grain = st.text_input("Granularita" if cs else "Grain", value=item.get("grain", ""))
-                    status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]), format_func=_semantic_status_label)
+                    status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]))
                     if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
                         document["semantic_model"] = upsert_item(model, "tables", {**item, "name": name, "technical_name": technical_name, "description": description, "grain": grain, "status": status})
                         save_dashboard(document)
@@ -1789,9 +1919,12 @@ def render_semantic_model(document):
                     to_column = right.text_input("Cílový sloupec" if cs else "To column", value=item["to_column"])
                     cardinality = st.selectbox("Kardinalita" if cs else "Cardinality", ["1:1", "1:N", "N:1", "N:M"], index=["1:1", "1:N", "N:1", "N:M"].index(item.get("cardinality", "1:N")))
                     if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
-                        document["semantic_model"] = upsert_item(model, "relationships", {**item, "name": name, "description": description, "from_table": from_table, "from_column": from_column, "to_table": to_table, "to_column": to_column, "cardinality": cardinality})
-                        save_dashboard(document)
-                        st.rerun()
+                        try:
+                            _save_semantic_relationship(document, model, {**item, "name": name, "description": description, "from_table": from_table, "from_column": from_column, "to_table": to_table, "to_column": to_column, "cardinality": cardinality})
+                        except ValueError as error:
+                            st.error(str(error))
+                        else:
+                            st.rerun()
     with metrics_tab:
         for item in model["metrics"]:
             with st.expander(item["name"], expanded=False):
@@ -1803,7 +1936,7 @@ def render_semantic_model(document):
                     entity = st.text_input("Zdrojová entita" if cs else "Source entity", value=item["entity"])
                     time_dimension = st.text_input("Časová dimenze" if cs else "Time dimension", value=item.get("time_dimension", ""))
                     rules = st.text_area("Pravidla a výjimky" if cs else "Rules and exceptions", value=item.get("rules", ""))
-                    status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]), key=f"metric-status-{item['id']}", format_func=_semantic_status_label)
+                    status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]), key=f"metric-status-{item['id']}")
                     if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
                         document["semantic_model"] = upsert_item(model, "metrics", {**item, "name": name, "synonyms": [value.strip() for value in synonyms.split(",") if value.strip()], "description": description, "formula": formula, "entity": entity, "time_dimension": time_dimension, "rules": rules, "status": status})
                         save_dashboard(document)
