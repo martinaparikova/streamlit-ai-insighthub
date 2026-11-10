@@ -49,16 +49,18 @@ DASHBOARD_EDITOR_TOOL = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "action": {"type": "string", "enum": ["update_selected", "add_text", "add_page", "add_kpi", "clarify"]},
+            "action": {"type": "string", "enum": ["update_cards", "add_text", "add_page", "add_kpi", "clarify"]},
+            "target_card_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 100},
             "title": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             "chart_kind": {"anyOf": [{"type": "string", "enum": ["bar", "line", "area", "pie", "table", "metric"]}, {"type": "null"}]},
             "color": {"anyOf": [{"type": "string", "enum": ["#0B3B2E", "#C2185B", "#4B5563"]}, {"type": "null"}]},
             "layout_width": {"anyOf": [{"type": "integer", "enum": [3, 4, 6, 12]}, {"type": "null"}]},
+            "font": {"anyOf": [{"type": "string", "enum": ["Arial", "Roboto", "Georgia", "Courier New"]}, {"type": "null"}]},
             "text": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             "query_request": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             "clarification": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         },
-        "required": ["action", "title", "chart_kind", "color", "layout_width", "text", "query_request", "clarification"],
+        "required": ["action", "target_card_ids", "title", "chart_kind", "color", "layout_width", "font", "text", "query_request", "clarification"],
     },
 }
 
@@ -225,10 +227,14 @@ def get_dashboard_editor_plan(instruction, context):
 
     instructions = """You convert a Czech or English dashboard request into exactly one safe action.
 You must use the provided tool. Never emit Python, HTML, JavaScript, SQL, or multiple actions.
-Use update_selected only when a selected card exists. Use add_kpi only for a new one-value KPI;
-put its human-language analytical request in query_request. Use clarify when the target is unclear.
-For a rename such as 'Uprav název tabulky na X', action is update_selected and title is X; do
-not change chart_kind unless the user explicitly asks to change the chart type."""
+Use update_cards for every edit of existing cards. target_card_ids must contain only IDs supplied
+in context. For a selected card, use its ID; for a request such as 'the first table at the top',
+resolve the matching card from the ordered context cards; for a request such as 'all charts', use
+every relevant card ID. If no card is selected, do not require selection: resolve a described
+target or use all cards only when the request explicitly applies to all cards. Use add_kpi only
+for a new one-value KPI; put its human-language analytical request in query_request. Use clarify
+when the target is unclear. For a rename such as 'Uprav název první tabulky nahoře na X', action
+is update_cards with one matching ID and title X; do not change chart_kind unless explicitly asked."""
     try:
         response = OpenAI(api_key=api_key).responses.create(
             model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
@@ -247,11 +253,17 @@ not change chart_kind unless the user explicitly asks to change the chart type."
 
 def normalize_dashboard_editor_plan(plan):
     """Apply the editor allowlist again on the server, independent of SDK schemas."""
-    if not isinstance(plan, dict) or plan.get("action") not in {"update_selected", "add_text", "add_page", "add_kpi", "clarify"}:
+    if not isinstance(plan, dict) or plan.get("action") not in {"update_cards", "add_text", "add_page", "add_kpi", "clarify"}:
         raise ValueError("The dashboard editor returned an unsupported action.")
     normalized = {key: plan.get(key) for key in (
-        "action", "title", "chart_kind", "color", "layout_width", "text", "query_request", "clarification",
+        "action", "target_card_ids", "title", "chart_kind", "color", "layout_width", "font", "text", "query_request", "clarification",
     )}
+    target_card_ids = normalized["target_card_ids"]
+    if not isinstance(target_card_ids, list) or len(target_card_ids) > 100 or any(
+        not isinstance(card_id, str) or not card_id.strip() or len(card_id) > 120 for card_id in target_card_ids
+    ):
+        raise ValueError("The dashboard editor returned invalid target cards.")
+    normalized["target_card_ids"] = list(dict.fromkeys(card_id.strip() for card_id in target_card_ids))
     for key in ("title", "text", "query_request", "clarification"):
         value = normalized[key]
         if value is not None and (not isinstance(value, str) or len(value.strip()) > 2000):
@@ -263,6 +275,8 @@ def normalize_dashboard_editor_plan(plan):
         raise ValueError("The dashboard editor returned an invalid color.")
     if normalized["layout_width"] is not None and normalized["layout_width"] not in {3, 4, 6, 12}:
         raise ValueError("The dashboard editor returned an invalid layout width.")
+    if normalized["font"] is not None and normalized["font"] not in {"Arial", "Roboto", "Georgia", "Courier New"}:
+        raise ValueError("The dashboard editor returned an invalid font.")
     return normalized
 
 

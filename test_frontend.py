@@ -41,6 +41,17 @@ class FrontendTests(unittest.TestCase):
         if not any(item.label == "Vytvořit nový" for item in self.app.button):
             next(item for item in self.app.button if item.label == "Dashboardy").click().run()
         self.assert_no_errors()
+        buttons = {item.label: item.proto.type for item in self.app.sidebar.button}
+        self.assertEqual(buttons["Dashboardy"], "primary")
+        self.assertEqual(buttons["Analytický chat"], "secondary")
+
+    def open_saved_chat_menu(self):
+        if not any(item.label == "how many invoices are currently overdue" for item in self.app.button):
+            next(item for item in self.app.button if item.label == "Ulo?en? chaty").click().run()
+        self.assert_no_errors()
+        buttons = {item.label: item.proto.type for item in self.app.sidebar.button}
+        self.assertEqual(buttons["Ulo?en? chaty"], "primary")
+        self.assertEqual(buttons["Dashboardy"], "secondary")
 
     def start_dashboard_creation(self):
         self.open_dashboard_menu()
@@ -645,6 +656,27 @@ LIMIT 5""",
         self.assertEqual([page["name"] for page in saved["dashboards"][0]["pages"]], ["Přehled"])
         self.assertEqual([page["name"] for page in saved["dashboards"][1]["pages"]], ["Přehled", "Tržby"])
 
+    def test_dashboard_editor_updates_all_fonts_without_selecting_a_card(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["cards"] = [
+            {"id": "revenue-chart", "title": "Revenue", "kind": "bar", "sql": "SELECT 1 AS value", "x": "value", "y": "value"},
+            {"id": "invoice-table", "title": "Invoices", "kind": "table", "sql": "SELECT 1 AS value", "x": "value", "y": "value"},
+        ]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        self.assertTrue(any("Upravujete celou stránku dashboardu" in item.value for item in self.app.info))
+        next(item for item in self.app.text_input if item.label == "Pokyn pro editor").input("U všech karet nastav font Arial")
+        next(item for item in self.app.button if item.label == "Navrhnout změnu").click().run()
+        next(item for item in self.app.button if item.label == "Potvrdit změnu").click().run()
+        self.assert_no_errors()
+
+        cards = json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"]
+        self.assertEqual([card["font"] for card in cards], ["Arial", "Arial"])
+
     def test_dashboard_editor_changes_selected_pie_color(self):
         document = normalize_workspace(None)
         page = document["dashboards"][0]["pages"][0]
@@ -711,6 +743,42 @@ LIMIT 5""",
         next(item for item in self.app.button if item.label == "Uložit úpravy").click().run()
         self.assert_no_errors()
         self.assertEqual(json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]["title"], "Nové tržby")
+
+    def test_card_editor_uses_a_multiline_instruction_field_and_persists_point_colors(self):
+        document = normalize_workspace(None)
+        page = document["dashboards"][0]["pages"][0]
+        page["cards"] = [{
+            "id": "revenue-chart", "title": "Revenue", "kind": "bar",
+            "sql": "SELECT 'Service Desk' AS product, 10 AS revenue UNION ALL SELECT 'Sales Flow', 20",
+            "x": "product", "y": "revenue",
+        }]
+        self.store.write_text(json.dumps(document), encoding="utf-8")
+        self.app.run()
+        self.open_dashboard_menu()
+        next(item for item in self.app.button if item.label == "Můj dashboard").click().run()
+        next(item for item in self.app.button if item.label == "Upravit").click().run()
+        self.assert_no_errors()
+        self.assertTrue(any(item.label == "Pokyn pro editor" for item in self.app.text_area))
+
+        self.app.session_state["editor-selected-point-revenue-chart"] = "Service Desk"
+        self.app.run()
+        next(item for item in self.app.color_picker if item.label == "Barva vybrané hodnoty").pick("#C2185B").run()
+        self.assertEqual(self.app.session_state["dashboard_card_editor_draft"]["point_colors"], {"Service Desk": "#C2185B"})
+        preview = json.loads(self.app.get("plotly_chart")[-1].proto.spec)
+        self.assertEqual(preview["data"][0]["marker"]["color"], ["#C2185B", "#0B3B2E"])
+
+        self.app.session_state["editor-selected-point-revenue-chart"] = "Sales Flow"
+        self.app.run()
+        self.assertEqual(
+            next(item for item in self.app.color_picker if item.label == "Barva vybrané hodnoty").value,
+            "#0B3B2E",
+        )
+        preview = json.loads(self.app.get("plotly_chart")[-1].proto.spec)
+        self.assertEqual(preview["data"][0]["marker"]["color"], ["#C2185B", "#0B3B2E"])
+        next(item for item in self.app.button if item.label == "Uložit úpravy").click().run()
+        self.assert_no_errors()
+        card = json.loads(self.store.read_text(encoding="utf-8"))["dashboards"][0]["pages"][0]["cards"][0]
+        self.assertEqual(card["point_colors"], {"Service Desk": "#C2185B"})
 
     def test_dashboard_editor_cancel_and_undo_keep_history_safe(self):
         document = normalize_workspace(None)

@@ -41,7 +41,8 @@
               "decimal_places": 0,
               "value_format": "number",
               "trend_direction": "higher_is_better",
-              "comparison_label": "oproti předchozímu období"
+              "comparison_label": "oproti předchozímu období",
+              "point_colors": {}
             },
             {
               "title": "companies overdue",
@@ -66,7 +67,8 @@
               "decimal_places": 0,
               "value_format": "number",
               "trend_direction": "higher_is_better",
-              "comparison_label": "oproti předchozímu období"
+              "comparison_label": "oproti předchozímu období",
+              "point_colors": {}
             },
             {
               "title": "creata a histogram with segments and their reveue",
@@ -91,7 +93,8 @@
               "decimal_places": 0,
               "value_format": "number",
               "trend_direction": "higher_is_better",
-              "comparison_label": "oproti předchozímu období"
+              "comparison_label": "oproti předchozímu období",
+              "point_colors": {}
             }
           ]
         },
@@ -203,7 +206,8 @@
                 "decimal_places": 0,
                 "value_format": "number",
                 "trend_direction": "higher_is_better",
-                "comparison_label": "oproti předchozímu období"
+                "comparison_label": "oproti předchozímu období",
+                "point_colors": {}
               },
               {
                 "title": "companies overdue",
@@ -228,7 +232,8 @@
                 "decimal_places": 0,
                 "value_format": "number",
                 "trend_direction": "higher_is_better",
-                "comparison_label": "oproti předchozímu období"
+                "comparison_label": "oproti předchozímu období",
+                "point_colors": {}
               },
               {
                 "title": "creata a histogram with segments and their reveue",
@@ -253,7 +258,8 @@
                 "decimal_places": 0,
                 "value_format": "number",
                 "trend_direction": "higher_is_better",
-                "comparison_label": "oproti předchozímu období"
+                "comparison_label": "oproti předchozímu období",
+                "point_colors": {}
               }
             ]
           },
@@ -316,7 +322,8 @@
                 "decimal_places": 0,
                 "value_format": "number",
                 "trend_direction": "higher_is_better",
-                "comparison_label": "oproti předchozímu období"
+                "comparison_label": "oproti předchozímu období",
+                "point_colors": {}
               },
               {
                 "title": "companies overdue",
@@ -341,7 +348,8 @@
                 "decimal_places": 0,
                 "value_format": "number",
                 "trend_direction": "higher_is_better",
-                "comparison_label": "oproti předchozímu období"
+                "comparison_label": "oproti předchozímu období",
+                "point_colors": {}
               },
               {
                 "title": "creata a histogram with segments and their reveue",
@@ -366,7 +374,8 @@
                 "decimal_places": 0,
                 "value_format": "number",
                 "trend_direction": "higher_is_better",
-                "comparison_label": "oproti předchozímu období"
+                "comparison_label": "oproti předchozímu období",
+                "point_colors": {}
               }
             ]
           },

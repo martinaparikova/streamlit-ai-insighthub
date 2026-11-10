@@ -130,14 +130,14 @@ TEXT = {
         "edit": "Upravit", "move_up": "Posunout výš", "move_down": "Posunout níž", "remove": "Odstranit", "edit_card": "Upravit kartu",
         "select_card": "Vyberte u karty tlačítko „Upravit“.", "name": "Název", "chart_type": "Typ grafu", "color": "Barva", "sort": "Řazení",
         "save_changes": "Uložit úpravy", "card_updated": "Karta byla upravena.", "dashboard_editor": "Editor dashboardu",
-        "editor_example": "Např. „Přidej stránku Finance“, „nastav weekly“, „změň graf na line“, „seřaď vzestupně“ nebo „nastav růžovou“.",
-        "editor_instruction": "Pokyn pro editor", "editor_placeholder": "Uprav aktuálně vybranou kartu…", "apply_change": "Provést změnu", "generated": "Vygenerováno lokálně",
+        "editor_example": "Např. „Přidej stránku Finance“, „první tabulka nahoře má název Tržby“, „u všech grafů nastav font Arial“, „dej všechny grafy vedle sebe“ nebo „nastav weekly“.",
+        "editor_instruction": "Pokyn pro editor", "editor_placeholder": "Popište změnu celé stránky nebo konkrétní karty…", "apply_change": "Provést změnu", "generated": "Vygenerováno lokálně",
         "editor_history": "Historie editoru: {count} uložených verzí (max. 30).", "undo_last_change": "Vrátit poslední změnu", "undo_completed": "Poslední potvrzená změna byla vrácena.",
         "block_width": "Šířka bloku", "layout_row": "Řádek rozvržení", "comment_text": "Text komentáře", "decimal_places": "Desetinná místa", "value_format": "Formát hodnoty", "trend_evaluation": "Vyhodnocení trendu",
-        "selected_card": "Aktuálně vybraná karta: **{title}**", "select_card_for_editor": "Nejdřív u požadované karty klikněte na „Upravit“. Pokyny pro stránku a přidání bloků fungují i bez výběru.",
+        "selected_card": "Aktuálně vybraná karta: **{title}**", "editing_dashboard": "Upravujete celou stránku dashboardu. Můžete popsat kartu podle pozice, například „první tabulka nahoře“, nebo použít hromadnou změnu, například „u všech grafů nastav font Arial“.",
         "propose_change": "Navrhnout změnu", "editor_submit_hint": "Stiskněte Enter pro odeslání nebo použijte tlačítko níže.", "change_preview": "Náhled navržené změny", "change_preview_note": "Změna se uloží až po potvrzení. Před uložením vznikne verze pro Undo.", "confirm_change": "Potvrdit změnu", "discard_proposal": "Zahodit návrh",
         "editor_command_unrecognized": "Pokyn jsem nerozpoznal. Zkuste například „změň graf na line“, „seřaď vzestupně“ nebo „nastav růžovou“.", "editor_card_updated": "Karta „{title}“ byla upravena.",
-        "card_editor_title": "Upravit kartu", "card_editor_settings": "Nastavení", "working_preview": "Pracovní náhled", "working_preview_note": "Změny se projeví na dashboardu až po uložení.", "discard_changes": "Zahodit změny", "selected_color": "Vybraná barva",
+        "card_editor_title": "Upravit kartu", "card_editor_settings": "Nastavení", "working_preview": "Pracovní náhled", "working_preview_note": "Změny se projeví na dashboardu až po uložení.", "discard_changes": "Zahodit změny", "selected_color": "Vybraná barva", "point_color_title": "Barva konkrétní hodnoty", "point_color_hint": "Klikněte v náhledu na sloupec nebo výseč a upravte jeho barvu.", "selected_point": "Vybraná hodnota: {label}", "point_color": "Barva vybrané hodnoty",
     },
     "en": {
         "language": "Interface language", "sidebar_subtitle": "BI easy · ERP × CRM overview",
@@ -195,14 +195,14 @@ TEXT = {
         "edit": "Edit", "move_up": "Move up", "move_down": "Move down", "remove": "Remove", "edit_card": "Edit card",
         "select_card": "Select a card using its Edit button.", "name": "Name", "chart_type": "Chart type", "color": "Color", "sort": "Sort order",
         "save_changes": "Save changes", "card_updated": "Card updated.", "dashboard_editor": "Dashboard editor",
-        "editor_example": "For example: “Add page Finance”, “set weekly”, “change chart to line”, “sort ascending”, or “set pink”.",
-        "editor_instruction": "Editor instruction", "editor_placeholder": "Update the currently selected card…", "apply_change": "Apply change", "generated": "Generated locally",
+        "editor_example": "For example: “Add page Finance”, “name the first table at the top Revenue”, “set Arial for all charts”, “put all charts side by side”, or “set weekly”.",
+        "editor_instruction": "Editor instruction", "editor_placeholder": "Describe a page-wide change or a specific card…", "apply_change": "Apply change", "generated": "Generated locally",
         "editor_history": "Editor history: {count} saved versions (max. 30).", "undo_last_change": "Undo last change", "undo_completed": "The last confirmed change was undone.",
         "block_width": "Block width", "layout_row": "Layout row", "comment_text": "Comment text", "decimal_places": "Decimal places", "value_format": "Value format", "trend_evaluation": "Trend evaluation",
-        "selected_card": "Currently selected card: **{title}**", "select_card_for_editor": "Select a card with its Edit button first. Page instructions and adding blocks also work without a selection.",
+        "selected_card": "Currently selected card: **{title}**", "editing_dashboard": "You are editing the whole dashboard page. Describe a card by position, for example “the first table at the top”, or make a bulk edit, for example “set Arial for all charts”.",
         "propose_change": "Propose change", "editor_submit_hint": "Press Enter to submit, or use the button below.", "change_preview": "Proposed change preview", "change_preview_note": "The change is saved only after confirmation. A version for Undo is created first.", "confirm_change": "Confirm change", "discard_proposal": "Discard proposal",
         "editor_command_unrecognized": "I could not recognize that instruction. Try, for example, “change chart to line”, “sort ascending”, or “set pink”.", "editor_card_updated": "Card “{title}” was updated.",
-        "card_editor_title": "Edit card", "card_editor_settings": "Settings", "working_preview": "Working preview", "working_preview_note": "Changes appear on the dashboard only after you save them.", "discard_changes": "Discard changes", "selected_color": "Selected color",
+        "card_editor_title": "Edit card", "card_editor_settings": "Settings", "working_preview": "Working preview", "working_preview_note": "Changes appear on the dashboard only after you save them.", "discard_changes": "Discard changes", "selected_color": "Selected color", "point_color_title": "Individual value color", "point_color_hint": "Click a bar or pie slice in the preview, then change its color.", "selected_point": "Selected value: {label}", "point_color": "Selected value color",
         "reset_demo": "Reset demo", "reset_demo_help": "Delete all shared dashboards, changes, and chats, then return the app to its default state.",
         "reset_demo_confirm": "I understand that this deletes the shared demo data for every tester.", "reset_demo_done": "The demo has been reset to its default state.",
     },
@@ -568,7 +568,8 @@ def chart_figure(spec, data, show_title=True):
     if spec["kind"] in ("table", "metric"):
         return None
     font_family = "Plus Jakarta Sans" if spec["font"] == "Arial" else spec["font"]
-    colors_for_bars = [spec["color"]] * len(data)
+    point_colors = spec.get("point_colors") or {}
+    colors_for_bars = [point_colors.get(str(label), spec["color"]) for label in data[spec["x"]]]
     if spec.get("highlight") and len(data):
         max_index = data[spec["y"]].astype(float).idxmax()
         colors_for_bars[data.index.get_loc(max_index)] = spec["highlight"]
@@ -751,7 +752,7 @@ def dashboard_editor_context(page, selected):
     return {
         "page": {"id": page["id"], "name": page["name"]},
         "selected_card": {"id": selected["id"], "title": selected["title"], "kind": selected["kind"]} if selected else None,
-        "cards": [{"id": card["id"], "title": card["title"], "kind": card["kind"]} for card in page["cards"]],
+        "cards": [{"id": card["id"], "title": card["title"], "kind": card["kind"], "layout": normalize_card(card)["layout"]} for card in page["cards"]],
     }
 
 
@@ -765,26 +766,37 @@ def plan_ai_dashboard_edit(command, dashboard, page, selected):
 
     candidate = deepcopy(dashboard)
     target_page = page_by_id(candidate, page["id"])
-    target = next((card for card in target_page["cards"] if selected and card["id"] == selected["id"]), None)
-    if plan["action"] == "update_selected":
-        if not target:
-            return None, "Nejdřív vyberte kartu tlačítkem „Upravit“."
+    target_ids = set(plan.get("target_card_ids") or [])
+    targets = [card for card in target_page["cards"] if card["id"] in target_ids]
+    if plan["action"] == "update_cards":
+        if not targets or len(targets) != len(target_ids):
+            return None, "AI neurčila platnou kartu k úpravě. Popište ji prosím přesněji."
         changes = []
         if plan.get("title"):
-            target["title"] = plan["title"].strip()[:120]
+            if len(targets) != 1:
+                return None, "Přejmenování vyžaduje jednu konkrétní kartu."
+            targets[0]["title"] = plan["title"].strip()[:120]
             changes.append("název")
         if plan.get("chart_kind"):
-            target["kind"] = plan["chart_kind"]
+            for target in targets:
+                target["kind"] = plan["chart_kind"]
             changes.append(f"typ grafu: {plan['chart_kind']}")
         if plan.get("color"):
-            target["color"] = plan["color"]
+            for target in targets:
+                target["color"] = plan["color"]
             changes.append("barva")
         if plan.get("layout_width"):
-            target["layout"]["width"] = plan["layout_width"]
+            for target in targets:
+                target["layout"]["width"] = plan["layout_width"]
             changes.append("šířka")
+        if plan.get("font"):
+            for target in targets:
+                target["font"] = plan["font"]
+            changes.append(f"písmo: {plan['font']}")
         if not changes:
             return None, "AI nenašla žádnou bezpečnou změnu k provedení."
-        summary = f"Upravím kartu „{target['title']}“: {', '.join(changes)}."
+        target_label = f"kartu „{targets[0]['title']}“" if len(targets) == 1 else f"{len(targets)} karet"
+        summary = f"Upravím {target_label}: {', '.join(changes)}."
     elif plan["action"] == "add_text":
         text = (plan.get("text") or "").strip()
         if not text:
@@ -1019,6 +1031,30 @@ def style_app():
         [data-testid='stSidebar'] [class*='st-key-sidebar-nav-'] [data-testid='stButton'] > button[kind='primary'] :is(p, span, svg) {{
             color: var(--ink) !important; fill: currentColor !important;
         }}
+        [data-testid='stSidebar'] [class*='st-key-sidebar-nav-'] {{ margin: .14rem 0; }}
+        [data-testid='stSidebar'] [class*='st-key-sidebar-nav-'] [data-testid='stButton'] > button {{
+            min-height: 2.8rem; padding: .6rem .75rem; border-radius: 9px !important;
+        }}
+        [data-testid='stSidebar'] .st-key-dashboard-submenu {{
+            margin: .3rem 0 .7rem 1.1rem; padding: .35rem 0 .35rem .75rem;
+            border-left: 1px solid rgba(159,226,207,.5);
+        }}
+        [data-testid='stSidebar'] .st-key-dashboard-submenu [data-testid='stButton'] > button {{
+            justify-content: flex-start; min-height: 2.45rem; padding: .48rem .65rem;
+            border: 1px solid transparent !important; border-radius: 8px !important;
+            color: #D6E6DF !important; background: transparent !important;
+            font-size: .84rem; font-weight: 500; text-align: left;
+        }}
+        [data-testid='stSidebar'] .st-key-dashboard-submenu [data-testid='stButton'] > button:hover {{
+            background: rgba(255,255,255,.1) !important;
+        }}
+        [data-testid='stSidebar'] .st-key-dashboard-submenu [data-testid='stButton'] > button[kind='primary'] {{
+            color: var(--ink) !important; background: #FFF9FB !important; border-color: #F2C9DA !important;
+            box-shadow: inset 3px 0 0 var(--accent) !important; font-weight: 700 !important;
+        }}
+        [data-testid='stSidebar'] .st-key-dashboard-submenu [data-testid='stButton'] > button[kind='primary'] :is(p, span, svg) {{
+            color: var(--ink) !important; fill: currentColor !important;
+        }}
         [data-testid='stSidebar'] hr {{ border-color: rgba(255,255,255,.16); }}
         [data-testid='stSidebar'] button[kind='headerNoPadding'] {{ color: white; }}
         [data-testid='stTextArea'] textarea, [data-testid='stTextInput'] input,
@@ -1166,7 +1202,7 @@ def style_app():
         [data-testid='stDialog']:has(.card-editor-dialog) [data-testid='stColumn'] {{ min-width: 0; }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel,
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-preview-panel {{
-            box-sizing: border-box; min-height: 24rem; height: 100%; border-radius: 16px; overflow: hidden;
+            box-sizing: border-box; min-height: 29rem; height: 100%; border-radius: 16px; overflow: hidden;
         }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel {{
             background: linear-gradient(145deg, #0B3B2E 0%, #164D3B 100%); border-color: #0B3B2E; padding: 1.25rem;
@@ -1177,15 +1213,20 @@ def style_app():
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stCaptionContainer'] p,
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stWidgetLabel'] p {{ color: #FFFFFF !important; }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] {{
-            min-height: 14rem; background: #FFFFFF; border-color: #B7CEC4; padding: 1.1rem;
+            min-height: 20rem; background: #FFFFFF; border-color: #B7CEC4; padding: 1.1rem;
         }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] [data-testid='stWidgetLabel'] p,
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] .editor-submit-hint {{ color: #0B3B2E !important; }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] [data-baseweb='input'] {{
             background: #FFFFFF; border-color: #B7CEC4;
         }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] [data-baseweb='textarea'] {{
+            min-height: 9.4rem; background: #FFFFFF; border-color: #B7CEC4;
+        }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] input {{ color: #0B3B2E !important; }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] input::placeholder {{ color: #6E827A !important; opacity: 1; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] textarea {{ color: #0B3B2E !important; min-height: 8.6rem !important; resize: vertical; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stForm'] textarea::placeholder {{ color: #6E827A !important; opacity: 1; }}
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-ai-panel [data-testid='stFormSubmitButton'] > button {{
             background: #F2F8F5; border-color: #B7CEC4; color: #0B3B2E;
         }}
@@ -1196,7 +1237,7 @@ def style_app():
         [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-manual-panel {{
             box-sizing: border-box; width: 100%; min-width: 0; background: #FFFFFF; border-color: #DCE4DF; border-radius: 16px; padding: 1.25rem;
         }}
-        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-preview-panel {{ min-height: 24rem; }}
+        [data-testid='stDialog']:has(.card-editor-dialog) .st-key-card-editor-preview-panel {{ min-height: 29rem; }}
         [data-testid='stDialog']:has(.card-editor-dialog) [class*='st-key-card-editor-preview-'] {{
             box-sizing: border-box; width: 100%; min-width: 0; min-height: 18.4rem; background: #FCF8FA; border-color: #E8BED1;
         }}
@@ -1371,10 +1412,36 @@ def _card_editor_draft(card_id, selected):
         st.session_state[draft_key] = {
             "id": card_id, "title": selected["title"], "kind": selected["kind"], "color": selected["color"],
             "sort_order": selected.get("sort_order", "original"), "text": selected.get("text", ""),
+            "point_colors": deepcopy(selected.get("point_colors", {})),
             "decimal_places": int(selected.get("decimal_places", 0)), "value_format": selected.get("value_format", "number"),
             "trend_direction": selected.get("trend_direction", "higher_is_better"), "layout": deepcopy(selected["layout"]),
         }
     return st.session_state[draft_key]
+
+
+def _update_card_editor_point_color(card_id, point_label):
+    """Commit a point color before the preview is rendered on Streamlit's rerun."""
+    draft = st.session_state.get("dashboard_card_editor_draft")
+    widget_key = f"editor-point-color-{card_id}-{point_label}"
+    if not draft or draft.get("id") != card_id or widget_key not in st.session_state:
+        return
+    draft.setdefault("point_colors", {})[point_label] = st.session_state[widget_key]
+
+
+def _selected_preview_point_label(selection, data, x_column):
+    """Resolve a chart selection to its category label without relying on one Plotly index field."""
+    points = selection.selection.points if selection else []
+    if not points:
+        return None
+    point = points[-1]
+    label = point.get("x")
+    if label is not None:
+        return str(label)
+    for key in ("point_index", "point_number"):
+        point_index = point.get(key)
+        if isinstance(point_index, int) and 0 <= point_index < len(data):
+            return str(data.iloc[point_index][x_column])
+    return None
 
 
 @st.dialog(t("card_editor_title"), width="large")
@@ -1388,13 +1455,16 @@ def render_card_editor_dialog(document, dashboard, page, card_id):
         st.rerun()
     selected = normalize_card(page["cards"][selected_index])
     draft = _card_editor_draft(card_id, selected)
-    ai_column, preview_column = st.columns([.9, 1.7], gap="large")
+    ai_column, preview_column = st.columns([1.15, 1.55], gap="large")
     with ai_column:
         with st.container(border=True, key="card-editor-ai-panel"):
             st.markdown("#### " + t("dashboard_editor"))
             st.caption(t("editor_example"))
             with st.form(f"card-editor-command-{card_id}", clear_on_submit=True):
-                command = st.text_input(t("editor_instruction"), placeholder=t("editor_placeholder"), key=f"editor-command-{card_id}")
+                command = st.text_area(
+                    t("editor_instruction"), placeholder=t("editor_placeholder"), height=150,
+                    key=f"editor-command-{card_id}",
+                )
                 st.markdown("<div class='editor-submit-hint'>" + t("editor_submit_hint") + "</div>", unsafe_allow_html=True)
                 proposed = st.form_submit_button(t("propose_change"), type="primary", icon=":material/auto_awesome:", width="stretch")
             if proposed:
@@ -1433,7 +1503,21 @@ def render_card_editor_dialog(document, dashboard, page, card_id):
             st.caption(t("working_preview_note"))
             preview = normalize_card({**selected, **draft, "layout": dict(draft["layout"])})
             with st.container(border=True, key=f"card-editor-preview-{card_id}"):
-                render_card_content(preview, page, f"editor-preview-{card_id}", show_sql=False)
+                if preview["kind"] in {"bar", "pie"}:
+                    _, preview_data = card_data(preview, page)
+                    selection = st.plotly_chart(
+                        chart_figure(preview, preview_data), width="stretch",
+                        key=f"editor-preview-chart-{card_id}", on_select="rerun", selection_mode="points",
+                    )
+                    selected_point = _selected_preview_point_label(selection, preview_data, preview["x"])
+                    selection_key = f"editor-selected-point-{card_id}"
+                    if selected_point and selected_point != st.session_state.get(selection_key):
+                        st.session_state[selection_key] = selected_point
+                        # The chart callback reruns before controls below are rendered. Rerun once more
+                        # after storing the new label so the picker is bound to the point just clicked.
+                        st.rerun()
+                else:
+                    render_card_content(preview, page, f"editor-preview-{card_id}", show_sql=False)
             pending = st.session_state.get("pending_dashboard_edit")
             if pending:
                 preview_dashboard = pending["dashboard"]
@@ -1460,6 +1544,17 @@ def render_card_editor_dialog(document, dashboard, page, card_id):
                 f"<div class='color-swatch'><span class='color-swatch__chip' style='background:{draft['color']}'></span>"
                 f"{t('selected_color')}: <code>{draft['color']}</code></div>", unsafe_allow_html=True,
             )
+        if draft["kind"] in {"bar", "pie"}:
+            st.markdown("##### " + t("point_color_title"))
+            st.caption(t("point_color_hint"))
+            selected_point = st.session_state.get(f"editor-selected-point-{card_id}")
+            if selected_point:
+                st.caption(t("selected_point", label=selected_point))
+                st.color_picker(
+                    t("point_color"), value=draft["point_colors"].get(selected_point, draft["color"]),
+                    key=f"editor-point-color-{card_id}-{selected_point}",
+                    on_change=_update_card_editor_point_color, args=(card_id, selected_point),
+                )
         manual_row_two = st.columns(4, gap="medium")
         with manual_row_two[0]:
             draft["sort_order"] = st.selectbox(t("sort"), ["original", "ascending", "descending"], index=["original", "ascending", "descending"].index(draft["sort_order"]), key=f"editor-sort-{card_id}")
@@ -1485,6 +1580,7 @@ def render_card_editor_dialog(document, dashboard, page, card_id):
                     "title": st.session_state[f"editor-title-{card_id}"],
                     "kind": st.session_state[f"editor-kind-{card_id}"],
                     "color": st.session_state[f"editor-color-{card_id}"],
+                    "point_colors": dict(draft["point_colors"]),
                     "sort_order": st.session_state[f"editor-sort-{card_id}"],
                     "decimal_places": st.session_state[f"editor-decimals-{card_id}"],
                     "value_format": st.session_state[f"editor-format-{card_id}"],
@@ -2142,7 +2238,7 @@ def render_dashboard(document, dashboard):
         if selected:
             st.info(t("selected_card", title=selected["title"]))
         else:
-            st.warning(t("select_card_for_editor"))
+            st.info(t("editing_dashboard"))
         with st.form(f"dashboard-editor-{page['id']}", clear_on_submit=True):
             command = st.text_input(t("editor_instruction"), placeholder=t("editor_placeholder"))
             st.markdown("<div class='editor-submit-hint'>" + t("editor_submit_hint") + "</div>", unsafe_allow_html=True)
@@ -2223,7 +2319,7 @@ with st.sidebar:
             st.rerun()
     if st.button(
         t("analytics_chat"), key="sidebar-nav-analytics-chat", icon=":material/chat:",
-        type="primary" if st.session_state.get("workspace_view") == "chat" and not st.session_state.get("active_saved_chat_id") else "secondary",
+        type="primary" if st.session_state.get("workspace_view") == "chat" and not st.session_state.get("active_saved_chat_id") and not st.session_state.get("dashboard_menu_open", False) else "secondary",
         use_container_width=True,
     ):
         st.session_state.workspace_view = "chat"
@@ -2234,7 +2330,7 @@ with st.sidebar:
         st.rerun()
     if st.button(
         t("dashboards"), key="sidebar-nav-dashboards", icon=":material/dashboard:",
-        type="primary" if st.session_state.get("workspace_view") == "dashboard" else "secondary",
+        type="primary" if (st.session_state.get("workspace_view") == "dashboard" or st.session_state.get("dashboard_menu_open", False)) and not st.session_state.get("saved_chat_menu_open", False) else "secondary",
         use_container_width=True,
     ):
         st.session_state.dashboard_menu_open = not st.session_state.get("dashboard_menu_open", False)
@@ -2260,7 +2356,7 @@ with st.sidebar:
                     st.session_state.selected_dashboard_card = None
                     st.session_state.dashboard_create_open = False
                     st.rerun()
-            if st.button(t("create_dashboard"), icon=":material/add:", use_container_width=True):
+            if st.button(t("create_dashboard"), key="create-dashboard", icon=":material/add:", type="secondary", use_container_width=True):
                 st.session_state.dashboard_create_open = True
                 st.rerun()
             if st.session_state.get("dashboard_create_open", False):
@@ -2284,7 +2380,7 @@ with st.sidebar:
                             st.rerun()
     if st.button(
         t("saved_chats"), key="sidebar-nav-saved-chats", icon=":material/bookmarks:",
-        type="primary" if st.session_state.get("workspace_view") == "chat" and bool(st.session_state.get("active_saved_chat_id")) else "secondary",
+        type="primary" if st.session_state.get("saved_chat_menu_open", False) or (st.session_state.get("workspace_view") == "chat" and bool(st.session_state.get("active_saved_chat_id"))) else "secondary",
         use_container_width=True,
     ):
         st.session_state.saved_chat_menu_open = not st.session_state.get("saved_chat_menu_open", False)

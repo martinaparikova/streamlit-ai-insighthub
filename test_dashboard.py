@@ -29,6 +29,14 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(document["pages"][0]["cards"][0]["title"], "Revenue")
         self.assertIn("id", document["pages"][0]["cards"][0])
 
+    def test_card_normalization_preserves_only_supported_individual_point_colors(self):
+        document = normalize_dashboard([{
+            "title": "Revenue", "kind": "bar", "sql": "SELECT 1",
+            "point_colors": {"Service Desk": "#C2185B", "Custom": "#123456", "bad": "invalid"},
+        }])
+
+        self.assertEqual(document["pages"][0]["cards"][0]["point_colors"], {"Service Desk": "#C2185B", "Custom": "#123456"})
+
     def test_filter_sql_uses_only_whitelisted_values(self):
         sql = "SELECT i.product, SUM(i.net_amount_czk) AS revenue FROM invoices i WHERE 1 = 1 GROUP BY i.product"
         filtered = apply_filters_to_sql(sql, {"segments": ["Enterprise"], "cities": ["Praha"], "date_from": "2026-02-01", "date_to": "2026-04-30", "period": "monthly"})
@@ -141,6 +149,32 @@ class DashboardTests(unittest.TestCase):
         page = document["pages"][0]
         updated, _ = parse_editor_command(document, page["id"], "Nastav weekly")
         self.assertEqual(updated["pages"][0]["filters"]["period"], "weekly")
+
+    def test_editor_targets_first_table_by_description_without_manual_selection(self):
+        document = normalize_dashboard([{
+            "title": "Revenue", "kind": "bar", "sql": "SELECT 1", "layout": {"row": 0, "width": 12},
+        }, {
+            "title": "Overdue invoices", "kind": "table", "sql": "SELECT 1", "layout": {"row": 1, "width": 12},
+        }, {
+            "title": "Products", "kind": "table", "sql": "SELECT 1", "layout": {"row": 2, "width": 12},
+        }])
+        page = document["pages"][0]
+
+        updated, _ = parse_editor_command(document, page["id"], "První tabulka nahoře má název Nezaplacené faktury")
+
+        self.assertEqual(updated["pages"][0]["cards"][1]["title"], "Nezaplacené faktury")
+        self.assertEqual(updated["pages"][0]["cards"][2]["title"], "Products")
+
+    def test_editor_applies_font_to_all_cards_without_manual_selection(self):
+        document = normalize_dashboard([
+            {"title": "Revenue", "kind": "bar", "sql": "SELECT 1"},
+            {"title": "Invoices", "kind": "table", "sql": "SELECT 1"},
+        ])
+        page = document["pages"][0]
+
+        updated, _ = parse_editor_command(document, page["id"], "U všech karet nastav font Arial")
+
+        self.assertEqual([card["font"] for card in updated["pages"][0]["cards"]], ["Arial", "Arial"])
 
     def test_chat_card_is_added_to_the_selected_page(self):
         document = normalize_dashboard([])

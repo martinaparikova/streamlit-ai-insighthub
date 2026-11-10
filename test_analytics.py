@@ -25,15 +25,16 @@ class AnalyticsPlanTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_dashboard_editor_plan({"action": "run_python", "title": "bad"})
         with self.assertRaises(ValueError):
-            normalize_dashboard_editor_plan({"action": "update_selected", "chart_kind": "scatter"})
+            normalize_dashboard_editor_plan({"action": "update_cards", "target_card_ids": [], "chart_kind": "scatter"})
 
         plan = normalize_dashboard_editor_plan({
-            "action": "update_selected", "title": " Overdue invoices ",
-            "chart_kind": "table", "color": "#C2185B", "layout_width": 6,
+            "action": "update_cards", "target_card_ids": ["overdue-table"], "title": " Overdue invoices ",
+            "chart_kind": "table", "color": "#C2185B", "layout_width": 6, "font": "Arial",
         })
 
         self.assertEqual(plan["title"], "Overdue invoices")
         self.assertEqual(plan["chart_kind"], "table")
+        self.assertEqual(plan["target_card_ids"], ["overdue-table"])
     def test_overdue_count_is_a_single_metric(self):
         result = build_analytics_result({"intent": "overdue_invoice_count", "segment": None, "city": None, "limit": None, "sort_order": "highest"})
         self.assertEqual(result["kind"], "metric")

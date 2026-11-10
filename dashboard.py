@@ -33,6 +33,11 @@ def normalize_card(card):
     normalized.setdefault("kind", "bar")
     normalized.setdefault("color", COLORS[0])
     normalized.setdefault("highlight", None)
+    point_colors = normalized.get("point_colors") if isinstance(normalized.get("point_colors"), dict) else {}
+    normalized["point_colors"] = {
+        str(label): color for label, color in point_colors.items()
+        if isinstance(label, (str, int, float)) and isinstance(color, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", color)
+    }
     normalized.setdefault("font", "Arial")
     normalized.setdefault("title_size", 20)
     normalized.setdefault("position", "bottom")
@@ -336,6 +341,38 @@ def apply_card_preferences(data, card):
     return data.sort_values(card["y"], ascending=card["sort_order"] == "ascending", kind="stable")
 
 
+def _cards_in_dashboard_order(cards):
+    """Return cards in their visible top-to-bottom, left-to-right order."""
+    return [card for _, card in sorted(
+        enumerate(cards), key=lambda item: (normalize_card(item[1])["layout"]["row"], item[0]),
+    )]
+
+
+def _described_editor_targets(page, prompt):
+    """Resolve explicit natural-language card references without needing a manual selection."""
+    ordered = _cards_in_dashboard_order(page["cards"])
+    if any(term in prompt for term in ("všechny", "vsechny", "všech", "vsech", "all ", "all charts", "every ")):
+        return ordered
+    ordinal_match = re.search(r"\b(první|prvni|first|druh(?:á|a|ý|y)|second|třet(?:í|i)|third)\b", prompt)
+    if not ordinal_match:
+        return []
+    ordinal = ordinal_match.group(1)
+    position = 0 if ordinal in {"první", "prvni", "first"} else 1 if ordinal in {"druhá", "druha", "druhý", "druhy", "second"} else 2
+    if any(term in prompt for term in ("tabulk", "table")):
+        ordered = [card for card in ordered if card.get("kind") == "table"]
+    elif any(term in prompt for term in ("graf", "chart")):
+        ordered = [card for card in ordered if card.get("kind") not in {"table", "text"}]
+    return ordered[position:position + 1]
+
+
+def _editor_font(prompt):
+    fonts = {
+        "arial": "Arial", "roboto": "Roboto", "georgia": "Georgia",
+        "courier new": "Courier New", "courier": "Courier New",
+    }
+    return next((font for term, font in fonts.items() if term in prompt), None)
+
+
 def parse_editor_command(document, page_id, command, selected_card_id=None):
     """Apply a constrained Czech/English command and return a visible change summary."""
     document = deepcopy(normalize_dashboard(document))
@@ -380,11 +417,20 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
         page["filters"]["period"] = "monthly"
         return document, "Časová granularita nastavena na monthly."
 
-    if not selected:
-        return document, "Vyberte kartu, kterou chcete upravit, nebo přidejte či přejmenujte stránku."
+    targets = _described_editor_targets(page, prompt)
+    if not targets and selected:
+        targets = [selected]
+    if not targets:
+        return document, "Upřesněte prosím kartu nebo rozsah změny, například „první tabulka nahoře“ nebo „u všech grafů“."
     changes = []
 
     rename_match = re.search(
+        r"(?:první|prvni|first)\s+(?:tabulk\w*|table|graf\w*|chart)\s+"
+        r"(?:nahoře|nahore|at\s+the\s+top)?\s*(?:má|ma|has)\s+"
+        r"(?:název|nazev|title)\s+(.+)",
+        command,
+        flags=re.I,
+    ) or re.search(
         r"(?:uprav|změň|zmen|nastav|přejmenuj|prejmenuj|rename|set|change)\s+"
         r"(?:it\s+)?(?:název|nazev|jméno|jmeno|title)?\s*(?:grafu|tabulky|karty|chart|table|card)?\s*"
         r"(?:na|to)\s+(.+)",
@@ -394,7 +440,9 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
     if rename_match:
         title = rename_match.group(1).strip(" .")[:120]
         if title:
-            selected["title"] = title
+            if len(targets) != 1:
+                return document, "Přejmenování vyžaduje jednu konkrétní kartu, například „první tabulka nahoře“."
+            targets[0]["title"] = title
             changes.append("název")
 
     # Change a chart type only after an explicit "change chart to …" phrase.
@@ -413,7 +461,8 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
             "table": ("table", "tabulk"),
         }.items() if any(target.startswith(term) for term in terms)), None)
         if chart_kind:
-            selected["kind"] = chart_kind
+            for target_card in targets:
+                target_card["kind"] = chart_kind
             changes.append(f"typ grafu: {chart_kind}")
 
     color_terms = {
@@ -423,30 +472,48 @@ def parse_editor_command(document, page_id, command, selected_card_id=None):
     }
     for term, color in color_terms.items():
         if term in prompt:
-            selected["color"] = color
+            for target_card in targets:
+                target_card["color"] = color
             changes.append("barva")
             break
 
+    font = _editor_font(prompt)
+    if font and any(term in prompt for term in ("font", "písmo", "pismo")):
+        for target_card in targets:
+            target_card["font"] = font
+        changes.append(f"písmo: {font}")
+
     if any(term in prompt for term in ("vzestup", "ascending", "nejniž", "nejniz")):
-        selected["sort_order"] = "ascending"
+        for target_card in targets:
+            target_card["sort_order"] = "ascending"
         changes.append("řazení vzestupně")
     elif any(term in prompt for term in ("sestup", "descending", "nejvyš", "nejvyss")):
-        selected["sort_order"] = "descending"
+        for target_card in targets:
+            target_card["sort_order"] = "descending"
         changes.append("řazení sestupně")
-    if any(term in prompt for term in ("nahoru", "up", "první", "prvni")):
-        index = page["cards"].index(selected)
-        if index:
-            page["cards"][index - 1], page["cards"][index] = page["cards"][index], page["cards"][index - 1]
-            changes.append("pozice karty")
+    if any(term in prompt for term in ("do jednoho řádku", "do jednoho radku", "one row", "vedle sebe", "side by side")) and len(targets) > 1:
+        for index, target_card in enumerate(targets):
+            target_card["layout"]["row"] = 0
+            target_card["layout"]["width"] = max(1, 12 // len(targets))
+        changes.append("rozložení do jednoho řádku")
+    elif any(term in prompt for term in ("nahoru", "to top", "at the top")):
+        minimum_row = min((card["layout"]["row"] for card in page["cards"]), default=0)
+        for target_card in targets:
+            target_card["layout"]["row"] = minimum_row
+        changes.append("pozice karty")
     if any(term in prompt for term in ("vedle", "polovinu", "half", "half-width")):
-        selected["layout"]["width"] = 6
+        for target_card in targets:
+            target_card["layout"]["width"] = 6
         changes.append("šířka poloviny řádku")
     elif any(term in prompt for term in ("třetinu", "tretinu", "third")):
-        selected["layout"]["width"] = 4
+        for target_card in targets:
+            target_card["layout"]["width"] = 4
         changes.append("šířka třetiny řádku")
     elif any(term in prompt for term in ("celou šířku", "celou sirku", "full width", "full-width")):
-        selected["layout"]["width"] = 12
+        for target_card in targets:
+            target_card["layout"]["width"] = 12
         changes.append("šířka celého řádku")
     if changes:
-        return document, f"Karta „{selected['title']}“ byla upravena: {', '.join(changes)}."
+        target_label = f"Karta „{targets[0]['title']}“" if len(targets) == 1 else f"{len(targets)} karet"
+        return document, f"{target_label} bylo upraveno: {', '.join(changes)}."
     return document, "Pokyn jsem nerozpoznal. Zkuste například „změň graf na line“, „seřaď vzestupně“ nebo „nastav růžovou“."
