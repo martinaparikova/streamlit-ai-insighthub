@@ -211,6 +211,18 @@ class FrontendTests(unittest.TestCase):
         self.assertTrue(any(item.label == "Přidat jako draft" for item in self.app.button))
         self.assertTrue(any("Firma → Faktury" in item.label for item in self.app.expander))
 
+    def test_english_schema_dialog_uses_english_default_labels(self):
+        self.app.button(key="language-en").click().run()
+        next(item for item in self.app.button if item.label == "Semantic model").click().run()
+        next(item for item in self.app.button if item.label == "View model schema").click().run()
+
+        self.assert_no_errors()
+        data = json.loads(self.app.get("bidi_component")[0].proto.json)
+        self.assertEqual(data["language"], "en")
+        self.assertEqual(next(table for table in data["tables"] if table["id"] == "companies")["name"], "Companies")
+        self.assertTrue(any(item.label == "Companies → Invoices" for item in self.app.expander))
+        self.assertFalse(any("Firma → Faktury" in item.label for item in self.app.expander))
+
     def test_catalog_error_retries_with_database_feedback(self):
         with patch(
             "analytics.get_llm_sql",
@@ -240,7 +252,9 @@ LIMIT 5""",
         repair_feedback = planner.call_args_list[1].kwargs["execution_feedback"]
         self.assertIn("julianday", repair_feedback["sql"])
         self.assertIn("julianday", repair_feedback["error"])
-        self.assertTrue(any(item.label == "SQL trace — zobrazit skutečně vykonaný dotaz" for item in self.app.expander))
+        sql_trace = next(item for item in self.app.button if item.label == "SQL trace")
+        sql_trace.click().run()
+        self.assert_no_errors()
         self.assertFalse(any(item.value == "Dotaz se nepodařilo bezpečně připravit nebo vykonat. Zkuste otázku upřesnit. (CatalogException)" for item in self.app.error))
 
     def test_visualization_remains_available(self):
@@ -309,6 +323,12 @@ LIMIT 5""",
         self.assertFalse(any("INSIGHT HUB" in item.value for item in self.app.caption))
         self.assertFalse(any("Výsledek bezpečně" in item.value for item in self.app.markdown))
 
+    def test_user_question_omits_metadata_label(self):
+        self.ask("Kolik faktur je po splatnosti?")
+
+        self.assert_no_errors()
+        self.assertFalse(any(item.value == "VY · DOTAZ" for item in self.app.caption))
+
     def test_new_conversation_clears_history_and_context(self):
         self.ask("How many overdue invoices do we have?")
         self.app.session_state["chat_notice"] = "Old notice"
@@ -363,6 +383,21 @@ LIMIT 5""",
         preview = next(item.value for item in self.app.markdown if "AI draft is available in phase 1" in item.value)
         self.assertIn("3 tables, 2 relationships, and 4 metrics", preview)
         self.assertNotIn("AI draft je ve fázi 1", preview)
+
+    def test_english_semantic_model_uses_english_default_metric_labels(self):
+        self.app.button(key="language-en").click().run()
+        next(item for item in self.app.button if item.label == "Semantic model").click().run()
+
+        self.assert_no_errors()
+        labels = [item.label for item in self.app.expander]
+        self.assertIn("Overdue amount", labels)
+        self.assertIn("Overdue invoice count", labels)
+        self.assertIn("Pipeline value", labels)
+        self.assertIn("Companies → Invoices", labels)
+        self.assertNotIn("Objem po splatnosti", labels)
+        self.assertNotIn("Počet faktur po splatnosti", labels)
+        self.assertNotIn("Hodnota pipeline", labels)
+        self.assertNotIn("Firma → Faktury", labels)
 
     def test_english_semantic_knowledge_answer_uses_english_ui_copy(self):
         self.app.button(key="language-en").click().run()

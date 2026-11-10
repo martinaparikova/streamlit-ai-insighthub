@@ -43,7 +43,7 @@ from dashboard import (
     restore_latest_dashboard_snapshot,
     save_dashboard_snapshot,
 )
-from ontology import answer_knowledge_question, draft_preview, normalize_semantic_model, upsert_item, validate_relationship
+from ontology import answer_knowledge_question, draft_preview, localized_semantic_model, normalize_semantic_model, upsert_item, validate_relationship
 from schema_diagram import render_schema_diagram
 import duckdb
 import numpy as np
@@ -97,7 +97,7 @@ TEXT = {
         "hide_demo_project_notice": "Skrýt", "show_demo_project_notice": "Informace o projektu",
         "reset_demo": "Resetovat demo", "reset_demo_help": "Smaže všechny společně uložené dashboardy, změny i chaty a vrátí aplikaci do výchozího stavu.",
         "reset_demo_confirm": "Rozumím, že tím smažu společná demo data všech testerů.", "reset_demo_done": "Demo bylo resetováno do výchozího stavu.",
-        "sql_trace": "SQL trace — zobrazit skutečně vykonaný dotaz", "sql_rows": "DuckDB · read-only SELECT · vráceno řádků: {rows}",
+        "sql_trace": "SQL trace", "sql_rows": "DuckDB · read-only SELECT · vráceno řádků: {rows}",
         "you_question": "VY · DOTAZ", "visualization": "VIZUALIZACE", "result": "VÝSLEDEK",
         "chart_details": "Graf · {kind} · {color} · {font} · zvýraznění: {highlight}", "no_highlight": "žádné",
         "add_dashboard": "Přidat do dashboardu", "add_to_dashboard_title": "Přidat vizuál do dashboardu",
@@ -162,7 +162,7 @@ TEXT = {
         "demo_project_roadmap": "Roadmap", "demo_project_roadmap_one": "Read-only Microsoft Fabric connections and other approved data sources.", "demo_project_roadmap_two": "Create and manage the ontology directly in the app.", "demo_project_roadmap_three": "Expanded analytical scenarios, visualizations, and dashboard collaboration.",
         "demo_project_feedback": "Please send comments and ideas to {email}.",
         "hide_demo_project_notice": "Hide", "show_demo_project_notice": "Project information",
-        "sql_trace": "SQL trace — show the executed query", "sql_rows": "DuckDB · read-only SELECT · rows returned: {rows}",
+        "sql_trace": "SQL trace", "sql_rows": "DuckDB · read-only SELECT · rows returned: {rows}",
         "you_question": "YOU · QUESTION", "visualization": "VISUALIZATION", "result": "RESULT",
         "chart_details": "Chart · {kind} · {color} · {font} · highlight: {highlight}", "no_highlight": "none",
         "add_dashboard": "Add to dashboard", "add_to_dashboard_title": "Add visual to dashboard",
@@ -388,6 +388,13 @@ def sql_card(sql, row_count=None):
         st.code(sql, language="sql")
         if row_count is not None:
             st.caption(t("sql_rows", rows=row_count))
+
+
+@st.dialog(t("sql_trace"), width="large")
+def render_sql_trace_dialog(sql, row_count):
+    """Show the executed read-only query without expanding the chat result."""
+    st.code(sql, language="sql")
+    st.caption(t("sql_rows", rows=row_count))
 
 
 def parse_agent(text):
@@ -1138,6 +1145,7 @@ def style_app():
         }}
         [class*='st-key-delete-'] button {{ color: var(--accent); }}
         [class*='st-key-delete-'] button:hover {{ background: var(--rose); border-color: var(--accent); color: var(--accent); }}
+        .st-key-new-conversation button {{ white-space: nowrap; }}
         [data-testid='stForm'], [data-testid='stVerticalBlockBorderWrapper'] > div {{
             border-color: var(--line); border-radius: 14px;
         }}
@@ -1505,7 +1513,6 @@ def render_card_editor_dialog(document, dashboard, page, card_id):
 def render_chat_item(item, index):
     with st.chat_message(item["role"]):
         if item["role"] == "user":
-            st.caption(t("you_question"))
             st.markdown(item["content"])
             return
         if item.get("mode") in ("clarification", "error"):
@@ -1571,15 +1578,27 @@ def render_chat_item(item, index):
             if result["kind"] == "bar":
                 st.plotly_chart(chart_figure(spec, data, show_title=False), use_container_width=True, key=f"answer-chart-{index}")
             st.dataframe(data, use_container_width=True, hide_index=True)
-            st.download_button(t("download_csv"), data.to_csv(index=False).encode("utf-8-sig"), f"biizy-{index}.csv", "text/csv", key=f"download-{index}", icon=":material/download:")
 
         add_open_key = "dashboard_add_item_index"
-        if st.button(t("add_dashboard"), key=f"add-dashboard-{index}", type="primary", icon=":material/dashboard_customize:"):
+        with st.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center", key=f"result-actions-{index}"):
+            st.download_button(
+                t("download_csv"), data.to_csv(index=False).encode("utf-8-sig"), f"biizy-{index}.csv", "text/csv",
+                key=f"download-{index}", icon=":material/download:", width="content",
+            )
+            add_to_dashboard = st.button(
+                t("add_dashboard"), key=f"add-dashboard-{index}", type="primary",
+                icon=":material/dashboard_customize:", width="content",
+            )
+            show_sql_trace = st.button(
+                t("sql_trace"), key=f"sql-trace-{index}", icon=":material/code:", width="content",
+            )
+        if add_to_dashboard:
             st.session_state[add_open_key] = index
             render_add_to_dashboard_dialog(load_dashboard(), spec, index)
         elif st.session_state.get(add_open_key) == index:
             render_add_to_dashboard_dialog(load_dashboard(), spec, index)
-        sql_card(result["sql"], len(data))
+        if show_sql_trace:
+            render_sql_trace_dialog(result["sql"], len(data))
 
 
 def render_analytics_chat_form():
@@ -1635,15 +1654,19 @@ def render_analytics_chat(document):
             st.session_state.chat_notice = t("chat_saved")
             st.rerun()
     with reset_column:
-        if st.button(t("new_conversation"), icon=":material/add:", use_container_width=True):
+        if st.button(t("new_conversation"), key="new-conversation", icon=":material/add:", use_container_width=True):
             reset_current_chat()
             st.rerun()
 
     active_saved_chat = saved_chat_by_id(document, st.session_state.active_saved_chat_id)
     if active_saved_chat:
         with st.form(f"rename-chat-{active_saved_chat['id']}"):
-            chat_name = st.text_input(t("chat_name"), value=active_saved_chat["title"], max_chars=60)
-            if st.form_submit_button(t("rename_chat"), icon=":material/edit:"):
+            chat_name_column, save_name_column = st.columns([5, 1], gap="small", vertical_alignment="bottom")
+            with chat_name_column:
+                chat_name = st.text_input(t("chat_name"), value=active_saved_chat["title"], max_chars=60)
+            with save_name_column:
+                rename_submitted = st.form_submit_button(t("rename_chat"), icon=":material/edit:")
+            if rename_submitted:
                 if not chat_name.strip():
                     st.error(t("chat_name_required"))
                 else:
@@ -1852,21 +1875,22 @@ def render_semantic_schema_dialog(document):
     model = normalize_semantic_model(document.get("semantic_model"))
     document["semantic_model"] = model
     cs = st.session_state.get("language") == "cs"
+    display_model = localized_semantic_model(model, "cs" if cs else "en")
     st.caption(
         "Kliknutím na kartu tabulky rozbalíte všechny sloupce a jejich datové typy." if cs
         else "Click a table card to expand all its columns and data types."
     )
     diagram_tab, relationships_tab = st.tabs(["Schéma" if cs else "Diagram", "Vztahy" if cs else "Relationships"])
     with diagram_tab:
-        render_schema_diagram(model, get_connection(), "cs" if cs else "en")
+        render_schema_diagram(display_model, get_connection(), "cs" if cs else "en")
     with relationships_tab:
         table_names = [item["technical_name"] for item in model["tables"]]
-        labels = {item["technical_name"]: f"{item['name']} · {item['technical_name']}" for item in model["tables"]}
-        for item in model["relationships"]:
-            with st.expander(item["name"], expanded=False):
+        labels = {item["technical_name"]: f"{display_item['name']} · {item['technical_name']}" for item, display_item in zip(model["tables"], display_model["tables"])}
+        for item, display_item in zip(model["relationships"], display_model["relationships"]):
+            with st.expander(display_item["name"], expanded=False):
                 with st.form(f"schema-relationship-{item['id']}"):
-                    name = st.text_input("Název vztahu" if cs else "Relationship name", value=item["name"])
-                    description = st.text_area("Popis" if cs else "Description", value=item["description"])
+                    name = st.text_input("Název vztahu" if cs else "Relationship name", value=display_item["name"])
+                    description = st.text_area("Popis" if cs else "Description", value=display_item["description"])
                     left, right = st.columns(2)
                     from_table = left.selectbox("Zdrojová tabulka" if cs else "From table", table_names, index=table_names.index(item["from_table"]), format_func=labels.get)
                     from_column = left.text_input("Zdrojový sloupec" if cs else "From column", value=item["from_column"])
@@ -1909,6 +1933,7 @@ def render_semantic_model(document):
     model = normalize_semantic_model(document.get("semantic_model"))
     document["semantic_model"] = model
     cs = st.session_state.get("language") == "cs"
+    display_model = localized_semantic_model(model, "cs" if cs else "en")
     st.title("Semantický model" if cs else "Semantic model")
     st.caption(
         "Editovatelný zdroj pravdy pro tabulky, vztahy, metriky a business pravidla. Analytický chat z něj odpovídá bez SQL."
@@ -1930,24 +1955,24 @@ def render_semantic_model(document):
         ["Tabulky" if cs else "Tables", "Vztahy" if cs else "Relationships", "Metriky" if cs else "Metrics", "Business znalosti" if cs else "Business knowledge"]
     )
     with tables_tab:
-        for item in model["tables"]:
-            with st.expander(f"{item['name']} · `{item['technical_name']}`", expanded=False):
+        for item, display_item in zip(model["tables"], display_model["tables"]):
+            with st.expander(f"{display_item['name']} · `{item['technical_name']}`", expanded=False):
                 with st.form(f"semantic-table-{item['id']}"):
-                    name = st.text_input("Business název" if cs else "Business name", value=item["name"])
+                    name = st.text_input("Business název" if cs else "Business name", value=display_item["name"])
                     technical_name = st.text_input("Technický název" if cs else "Technical name", value=item["technical_name"])
-                    description = st.text_area("Popis" if cs else "Description", value=item["description"])
-                    grain = st.text_input("Granularita" if cs else "Grain", value=item.get("grain", ""))
+                    description = st.text_area("Popis" if cs else "Description", value=display_item["description"])
+                    grain = st.text_input("Granularita" if cs else "Grain", value=display_item.get("grain", ""))
                     status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]))
                     if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
                         document["semantic_model"] = upsert_item(model, "tables", {**item, "name": name, "technical_name": technical_name, "description": description, "grain": grain, "status": status})
                         save_dashboard(document)
                         st.rerun()
     with relations_tab:
-        for item in model["relationships"]:
-            with st.expander(item["name"], expanded=False):
+        for item, display_item in zip(model["relationships"], display_model["relationships"]):
+            with st.expander(display_item["name"], expanded=False):
                 with st.form(f"semantic-relation-{item['id']}"):
-                    name = st.text_input("Název" if cs else "Name", value=item["name"])
-                    description = st.text_area("Popis" if cs else "Description", value=item["description"])
+                    name = st.text_input("Název" if cs else "Name", value=display_item["name"])
+                    description = st.text_area("Popis" if cs else "Description", value=display_item["description"])
                     left, right = st.columns(2)
                     from_table = left.text_input("Zdrojová tabulka" if cs else "From table", value=item["from_table"])
                     from_column = left.text_input("Zdrojový sloupec" if cs else "From column", value=item["from_column"])
@@ -1962,16 +1987,16 @@ def render_semantic_model(document):
                         else:
                             st.rerun()
     with metrics_tab:
-        for item in model["metrics"]:
-            with st.expander(item["name"], expanded=False):
+        for item, display_item in zip(model["metrics"], display_model["metrics"]):
+            with st.expander(display_item["name"], expanded=False):
                 with st.form(f"semantic-metric-{item['id']}"):
-                    name = st.text_input("Název metriky" if cs else "Metric name", value=item["name"])
-                    synonyms = st.text_input("Synonyma (oddělená čárkou)" if cs else "Synonyms (comma separated)", value=", ".join(item.get("synonyms", [])))
-                    description = st.text_area("Business definice" if cs else "Business definition", value=item["description"])
+                    name = st.text_input("Název metriky" if cs else "Metric name", value=display_item["name"])
+                    synonyms = st.text_input("Synonyma (oddělená čárkou)" if cs else "Synonyms (comma separated)", value=", ".join(display_item.get("synonyms", [])))
+                    description = st.text_area("Business definice" if cs else "Business definition", value=display_item["description"])
                     formula = st.text_area("Formula / SQL výraz" if cs else "Formula / SQL expression", value=item["formula"])
                     entity = st.text_input("Zdrojová entita" if cs else "Source entity", value=item["entity"])
                     time_dimension = st.text_input("Časová dimenze" if cs else "Time dimension", value=item.get("time_dimension", ""))
-                    rules = st.text_area("Pravidla a výjimky" if cs else "Rules and exceptions", value=item.get("rules", ""))
+                    rules = st.text_area("Pravidla a výjimky" if cs else "Rules and exceptions", value=display_item.get("rules", ""))
                     status = st.selectbox("Stav" if cs else "Status", _semantic_status_options(), index=_semantic_status_options().index(item["status"]), key=f"metric-status-{item['id']}")
                     if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
                         document["semantic_model"] = upsert_item(model, "metrics", {**item, "name": name, "synonyms": [value.strip() for value in synonyms.split(",") if value.strip()], "description": description, "formula": formula, "entity": entity, "time_dimension": time_dimension, "rules": rules, "status": status})
@@ -1990,11 +2015,11 @@ def render_semantic_model(document):
     with knowledge_tab:
         for collection, heading in (("terms", "Slovník pojmů" if cs else "Business glossary"), ("rules", "Business pravidla" if cs else "Business rules")):
             st.subheader(heading)
-            for item in model[collection]:
-                with st.expander(item["name"], expanded=False):
+            for item, display_item in zip(model[collection], display_model[collection]):
+                with st.expander(display_item["name"], expanded=False):
                     with st.form(f"semantic-{collection}-{item['id']}"):
-                        name = st.text_input("Název" if cs else "Name", value=item["name"])
-                        description = st.text_area("Popis" if cs else "Description", value=item["description"])
+                        name = st.text_input("Název" if cs else "Name", value=display_item["name"])
+                        description = st.text_area("Popis" if cs else "Description", value=display_item["description"])
                         if st.form_submit_button("Uložit" if cs else "Save", icon=":material/save:"):
                             document["semantic_model"] = upsert_item(model, collection, {**item, "name": name, "description": description})
                             save_dashboard(document)

@@ -7,9 +7,68 @@ import uuid
 
 STATUSES = ("draft", "approved")
 
+ENGLISH_DEFAULT_TEXT = {
+    "companies": {"name": "Companies", "description": "Customer master data and core commercial attributes.", "grain": "One row represents one company."},
+    "invoices": {"name": "Invoices", "description": "Issued invoices, including net amount, date, and payment status.", "grain": "One row represents one invoice."},
+    "opportunities": {"name": "Sales opportunities", "description": "CRM sales pipeline and expected values.", "grain": "One row represents one sales opportunity."},
+    "companies-invoices": {"name": "Companies → Invoices", "description": "One company can have multiple invoices."},
+    "companies-opportunities": {"name": "Companies → Sales opportunities", "description": "One company can have multiple sales opportunities."},
+    "revenue": {
+        "description": "Sum of net amounts for issued invoices by issue date.",
+        "synonyms": ["revenue", "turnover"],
+        "rules": "VAT is excluded. Cancellations and credit notes are not modeled separately in the demo source.",
+    },
+    "overdue-amount": {
+        "name": "Overdue amount",
+        "description": "Sum of net amounts for invoices with Overdue status.",
+        "synonyms": ["overdue amount", "overdue receivables"],
+        "rules": "Overdue status is determined exclusively by payment_status = 'Overdue'.",
+    },
+    "overdue-invoice-count": {
+        "name": "Overdue invoice count",
+        "description": "Number of invoices with Overdue status.",
+        "synonyms": ["overdue invoices", "overdue invoice count"],
+        "rules": "The due date alone is not sufficient to determine the status.",
+    },
+    "pipeline-value": {
+        "name": "Pipeline value",
+        "description": "Sum of open sales-opportunity values by stage.",
+        "synonyms": ["pipeline", "opportunity value"],
+        "rules": "The meaning of each stage is defined by the opportunities.stage value.",
+    },
+    "company": {"name": "Company", "description": "A customer recorded in the companies table.", "synonyms": ["company", "customer", "account"]},
+    "invoice": {"name": "Invoice", "description": "A document issued to a customer and recorded in the invoices table.", "synonyms": ["invoice"]},
+    "pipeline": {"name": "Pipeline", "description": "A collection of sales opportunities across sales stages.", "synonyms": ["sales pipeline"]},
+    "overdue-definition": {
+        "name": "Determining an overdue invoice",
+        "description": "An overdue invoice has payment_status = 'Overdue'. The due_date is not used as a standalone criterion because a paid invoice can also have a due date in the past.",
+    },
+    "revenue-definition": {"name": "Revenue definition", "description": "In the demo model, Revenue is the sum of net amounts for issued invoices by invoice_date."},
+}
+
 
 def _item(identifier, name, description, **values):
     return {"id": identifier, "name": name, "description": description, "status": "approved", **values}
+
+
+def localized_item(item, language="cs"):
+    """Return localized display text for built-in items without changing stored user data."""
+    if language != "en" or not isinstance(item, dict):
+        return item
+    localized = dict(item)
+    localized.update(ENGLISH_DEFAULT_TEXT.get(item.get("id"), {}))
+    return localized
+
+
+def localized_semantic_model(model, language="cs"):
+    """Return a normalized semantic model with display text for the selected language."""
+    normalized = normalize_semantic_model(model)
+    if language != "en":
+        return normalized
+    return {
+        **normalized,
+        **{collection: [localized_item(item, language) for item in normalized[collection]] for collection in ("tables", "relationships", "metrics", "terms", "rules")},
+    }
 
 
 def default_semantic_model():
@@ -129,7 +188,7 @@ def _matches(question, value):
 
 def answer_knowledge_question(question, model, language="cs"):
     """Answer deterministic Czech/English model questions without SQL or an LLM call."""
-    model = normalize_semantic_model(model)
+    model = localized_semantic_model(model, language)
     prompt = re.sub(r"\s+", " ", question.casefold()).strip()
     cs = language == "cs"
     analytical_words = ("show", "zobraz", "kolik", "how many", "count", "sum", "total", "by ", "podle", "za ", "v roce", "month", "měs", "mes", "segment")

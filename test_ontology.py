@@ -19,6 +19,15 @@ class OntologyTests(unittest.TestCase):
 
         self.assertEqual(answer["title"], "Tables in the semantic model")
         self.assertIn("The model contains 3 tables", answer["content"])
+        self.assertIn("**Companies**", answer["content"])
+        self.assertNotIn("**Firmy**", answer["content"])
+
+    def test_english_metric_definition_uses_english_default_content(self):
+        answer = answer_knowledge_question("What is the pipeline value metric?", self.model, "en")
+
+        self.assertEqual(answer["title"], "Metric definition: Pipeline value")
+        self.assertIn("Sum of open sales-opportunity values by stage.", answer["content"])
+        self.assertNotIn("Hodnota pipeline", answer["content"])
 
     def test_answers_revenue_definition(self):
         answer = answer_knowledge_question("Jak se počítá revenue?", self.model)
