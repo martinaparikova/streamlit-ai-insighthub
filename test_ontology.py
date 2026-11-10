@@ -1,6 +1,6 @@
 import unittest
 
-from ontology import answer_knowledge_question, default_semantic_model, normalize_semantic_model, upsert_item, validate_relationship
+from ontology import answer_knowledge_question, default_semantic_model, draft_preview, normalize_semantic_model, upsert_item, validate_relationship
 
 
 class OntologyTests(unittest.TestCase):
@@ -14,6 +14,12 @@ class OntologyTests(unittest.TestCase):
         self.assertIn("`companies`", answer["content"])
         self.assertIn("`invoices`", answer["content"])
 
+    def test_english_knowledge_answer_uses_english_ui_copy(self):
+        answer = answer_knowledge_question("What tables are in the model?", self.model, "en")
+
+        self.assertEqual(answer["title"], "Tables in the semantic model")
+        self.assertIn("The model contains 3 tables", answer["content"])
+
     def test_answers_revenue_definition(self):
         answer = answer_knowledge_question("Jak se počítá revenue?", self.model)
 
@@ -24,6 +30,11 @@ class OntologyTests(unittest.TestCase):
         answer = answer_knowledge_question("Jak se určuje faktura po splatnosti?", self.model)
 
         self.assertIn("payment_status = 'Overdue'", answer["content"])
+
+    def test_draft_preview_uses_the_selected_language(self):
+        self.assertIn("AI draft is available in phase 1", draft_preview(self.model, "en"))
+        self.assertNotIn("AI draft je ve fázi 1", draft_preview(self.model, "en"))
+        self.assertIn("AI draft je ve fázi 1", draft_preview(self.model, "cs"))
 
     def test_upsert_metric_creates_normalized_draft(self):
         updated = upsert_item(self.model, "metrics", {

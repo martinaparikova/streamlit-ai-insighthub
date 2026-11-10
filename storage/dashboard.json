@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "dashboards": [
     {
       "id": "default",
@@ -387,5 +387,179 @@
         "name": "Můj dashboard"
       }
     }
-  ]
+  ],
+  "semantic_model": {
+    "version": 1,
+    "source": {
+      "name": "Demo CRM / ERP",
+      "engine": "DuckDB",
+      "status": "connected"
+    },
+    "tables": [
+      {
+        "id": "companies",
+        "name": "Firmy",
+        "description": "Kmen zákazníků a základní obchodní atributy.",
+        "status": "approved",
+        "technical_name": "companies",
+        "grain": "Jeden řádek představuje jednu firmu."
+      },
+      {
+        "id": "invoices",
+        "name": "Faktury",
+        "description": "Vystavené faktury včetně netto hodnoty, data a stavu úhrady.",
+        "status": "approved",
+        "technical_name": "invoices",
+        "grain": "Jeden řádek představuje jednu fakturu."
+      },
+      {
+        "id": "opportunities",
+        "name": "Obchodní příležitosti",
+        "description": "CRM pipeline obchodních příležitostí a očekávané hodnoty.",
+        "status": "approved",
+        "technical_name": "opportunities",
+        "grain": "Jeden řádek představuje jednu obchodní příležitost."
+      }
+    ],
+    "relationships": [
+      {
+        "id": "companies-invoices",
+        "name": "Firma → Faktury",
+        "description": "Jedna firma může mít více faktur.",
+        "status": "approved",
+        "from_table": "companies",
+        "from_column": "company_id",
+        "to_table": "invoices",
+        "to_column": "company_id",
+        "cardinality": "1:N"
+      },
+      {
+        "id": "companies-opportunities",
+        "name": "Firma → Obchodní příležitosti",
+        "description": "Jedna firma může mít více obchodních příležitostí.",
+        "status": "approved",
+        "from_table": "companies",
+        "from_column": "company_id",
+        "to_table": "opportunities",
+        "to_column": "company_id",
+        "cardinality": "1:N"
+      }
+    ],
+    "metrics": [
+      {
+        "id": "revenue",
+        "name": "Revenue",
+        "description": "Součet netto hodnot vystavených faktur podle data vystavení.",
+        "status": "approved",
+        "synonyms": [
+          "tržby",
+          "obrat"
+        ],
+        "formula": "SUM(invoices.net_amount_czk)",
+        "entity": "invoices",
+        "time_dimension": "invoices.invoice_date",
+        "format": "CZK",
+        "rules": "Nezahrnuje DPH. Storna a dobropisy v demo zdroji nejsou samostatně modelovány."
+      },
+      {
+        "id": "overdue-amount",
+        "name": "Objem po splatnosti",
+        "description": "Součet netto hodnot faktur se stavem Overdue.",
+        "status": "approved",
+        "synonyms": [
+          "overdue amount",
+          "pohledávky po splatnosti"
+        ],
+        "formula": "SUM(invoices.net_amount_czk) WHERE invoices.payment_status = 'Overdue'",
+        "entity": "invoices",
+        "time_dimension": "invoices.due_date",
+        "format": "CZK",
+        "rules": "Stav po splatnosti se určuje výhradně přes payment_status = 'Overdue'."
+      },
+      {
+        "id": "overdue-invoice-count",
+        "name": "Počet faktur po splatnosti",
+        "description": "Počet faktur se stavem Overdue.",
+        "status": "approved",
+        "synonyms": [
+          "overdue invoices",
+          "počet overdue faktur"
+        ],
+        "formula": "COUNT(invoices.invoice_id) WHERE invoices.payment_status = 'Overdue'",
+        "entity": "invoices",
+        "time_dimension": "invoices.due_date",
+        "format": "number",
+        "rules": "Samotné datum splatnosti pro určení stavu nestačí."
+      },
+      {
+        "id": "pipeline-value",
+        "name": "Hodnota pipeline",
+        "description": "Součet hodnot otevřených obchodních příležitostí podle jejich fáze.",
+        "status": "approved",
+        "synonyms": [
+          "pipeline",
+          "hodnota příležitostí"
+        ],
+        "formula": "SUM(opportunities.amount_czk)",
+        "entity": "opportunities",
+        "time_dimension": "opportunities.created_date",
+        "format": "CZK",
+        "rules": "Význam jednotlivých fází je dán hodnotou opportunities.stage."
+      }
+    ],
+    "terms": [
+      {
+        "id": "company",
+        "name": "Firma",
+        "description": "Zákazník evidovaný v tabulce companies.",
+        "status": "approved",
+        "synonyms": [
+          "společnost",
+          "customer",
+          "account"
+        ]
+      },
+      {
+        "id": "invoice",
+        "name": "Faktura",
+        "description": "Doklad vystavený zákazníkovi evidovaný v tabulce invoices.",
+        "status": "approved",
+        "synonyms": [
+          "invoice"
+        ]
+      },
+      {
+        "id": "pipeline",
+        "name": "Pipeline",
+        "description": "Souhrn obchodních příležitostí v jednotlivých obchodních fázích.",
+        "status": "approved",
+        "synonyms": [
+          "obchodní pipeline"
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "id": "overdue-definition",
+        "name": "Určení faktury po splatnosti",
+        "description": "Faktura po splatnosti má payment_status = 'Overdue'. Datum due_date se nepoužívá jako samostatné kritérium, protože i zaplacená faktura může mít datum splatnosti v minulosti.",
+        "status": "approved",
+        "related_to": [
+          "invoices",
+          "overdue-amount",
+          "overdue-invoice-count"
+        ]
+      },
+      {
+        "id": "revenue-definition",
+        "name": "Význam Revenue",
+        "description": "Revenue je v demo modelu součet netto hodnot vystavených faktur podle invoice_date.",
+        "status": "approved",
+        "related_to": [
+          "invoices",
+          "revenue"
+        ]
+      }
+    ]
+  }
 }

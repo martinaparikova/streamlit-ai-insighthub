@@ -54,8 +54,8 @@ class FrontendTests(unittest.TestCase):
         self.app.run()
         self.assert_no_errors()
 
-    def ask(self, prompt, button="Zobrazit odpověď"):
-        next(item for item in self.app.text_input if item.label == "Váš dotaz").input(prompt)
+    def ask(self, prompt, button="Zobrazit odpověď", question_label="Váš dotaz"):
+        next(item for item in self.app.text_input if item.label == question_label).input(prompt)
         next(item for item in self.app.button if item.label == button).click().run()
         self.assert_no_errors()
 
@@ -79,17 +79,60 @@ class FrontendTests(unittest.TestCase):
         self.assertEqual(buttons["Zobrazit odpověď"], "primary")
         self.assertEqual(buttons["Vytvořit graf"], "secondary")
 
+    def test_data_sources_navigation_renders_read_only_connection_preview(self):
+        sidebar_labels = [item.label for item in self.app.sidebar.button]
+        self.assertEqual(
+            sidebar_labels[:5],
+            ["Zdroje dat", "Semantický model", "Analytický chat", "Dashboardy", "Uložené chaty"],
+        )
+        active_button = next(item for item in self.app.sidebar.button if item.label == "Analytický chat")
+        self.assertEqual(active_button.proto.type, "primary")
+        next(item for item in self.app.button if item.label == "Zdroje dat").click().run()
+        self.assert_no_errors()
+        self.assertEqual(self.app.session_state["workspace_view"], "data_sources")
+        active_button = next(item for item in self.app.sidebar.button if item.label == "Zdroje dat")
+        self.assertEqual(active_button.proto.type, "primary")
+        page = "\n".join(item.value for item in self.app.markdown)
+        self.assertIn("Připojení zdrojů dat zatím není aktivní", page)
+        self.assertIn("nahranými zkušebními ERP a CRM daty", page)
+        self.assertEqual(
+            [item.label for item in self.app.expander[:4]],
+            [
+                "Microsoft ekosystém · 2 zdroje",
+                "Relační databáze · 2 zdroje",
+                "Cloudové datové platformy · 2 zdroje",
+                "Soubory z počítače · 4 zdroje",
+            ],
+        )
+        for source_name in ("Microsoft Fabric", "PostgreSQL", "Microsoft SQL Server", "MySQL / MariaDB", "Snowflake", "Databricks", "CSV", "Excel", "Textové soubory", "JSON"):
+            self.assertIn(source_name, page)
+        self.assertNotIn("Příští krok", page)
+        self.assertNotIn("Next step", page)
+        self.assertEqual(len(self.app.file_uploader), 0)
+
+    def test_data_sources_use_english_copy_when_english_is_selected(self):
+        self.app.button(key="language-en").click().run()
+        next(item for item in self.app.button if item.label == "Data sources").click().run()
+        self.assert_no_errors()
+        page = "\n".join(item.value for item in self.app.markdown)
+        self.assertIn("Data-source connections are not active yet", page)
+        self.assertIn("Files from your computer · 4 sources", [item.label for item in self.app.expander])
+        self.assertIn("Text files", page)
+        self.assertNotIn("Textové soubory", page)
+        self.assertNotIn("Příští krok", page)
+        self.assertNotIn("Next step", page)
+
     def test_work_in_progress_notice_is_visible_by_default_and_can_be_hidden(self):
         self.assert_no_errors()
         notice = next(
             item.value for item in self.app.markdown
             if "demo-project-notice__content" in item.value and "<h2>" in item.value
         )
-        self.assertIn("Biizy je work in progress", notice)
-        self.assertIn("Co aplikace umí", notice)
-        self.assertIn("Jak na to", notice)
-        self.assertIn("Plány", notice)
-        self.assertIn("Přidejte ho na vybranou stránku dashboardu", notice)
+        self.assertIn("Biizy · aktuální stav projektu", notice)
+        self.assertIn("Dostupné v demu", notice)
+        self.assertIn("Doporučený postup", notice)
+        self.assertIn("Další rozvoj", notice)
+        self.assertIn("Přidejte vybraný výsledek na stránku dashboardu", notice)
         self.assertIn("martina.parikova@gmail.com", notice)
         self.assertNotIn(":material/construction:", notice)
         with Image.open(Path(__file__).parent / "assets" / "biizy_logo.png") as logo:
@@ -150,11 +193,21 @@ class FrontendTests(unittest.TestCase):
         self.assertTrue(any(item.label == "Zobrazit schéma modelu" for item in self.app.button))
         self.assertEqual(len(self.app.metric), 4)
 
-    def test_schema_dialog_renders_relationship_editor_and_adds_draft(self):
+    def test_schema_dialog_renders_expandable_graph_and_relationship_editor(self):
         next(item for item in self.app.button if item.label == "Semantický model").click().run()
         next(item for item in self.app.button if item.label == "Zobrazit schéma modelu").click().run()
 
         self.assert_no_errors()
+        graph = self.app.get("bidi_component")[0]
+        self.assertEqual(graph.proto.component_name, "semantic_schema_graph")
+        data = json.loads(graph.proto.json)
+        self.assertEqual(len(data["tables"]), 3)
+        self.assertEqual(len(data["relationships"]), 2)
+        self.assertEqual(data["hub"], "companies")
+        self.assertEqual(data["language"], "cs")
+        companies = next(table for table in data["tables"] if table["id"] == "companies")
+        self.assertIn("company_name", [column["name"] for column in companies["columns"]])
+        self.assertTrue(all(table["columns"] and not table["error"] for table in data["tables"]))
         self.assertTrue(any(item.label == "Přidat jako draft" for item in self.app.button))
         self.assertTrue(any("Firma → Faktury" in item.label for item in self.app.expander))
 
@@ -302,6 +355,22 @@ LIMIT 5""",
         self.assertNotIn("AI is ready", heading)
         self.assertTrue(any(item.label == "New conversation" for item in self.app.button))
 
+    def test_semantic_model_ai_draft_preview_is_english(self):
+        self.app.button(key="language-en").click().run()
+        next(item for item in self.app.button if item.label == "Semantic model").click().run()
+
+        self.assert_no_errors()
+        preview = next(item.value for item in self.app.markdown if "AI draft is available in phase 1" in item.value)
+        self.assertIn("3 tables, 2 relationships, and 4 metrics", preview)
+        self.assertNotIn("AI draft je ve fázi 1", preview)
+
+    def test_english_semantic_knowledge_answer_uses_english_ui_copy(self):
+        self.app.button(key="language-en").click().run()
+        self.ask("What tables are in the model?", button="Show answer", question_label="Your question")
+
+        self.assert_no_errors()
+        self.assertTrue(any(item.value == "Tables in the semantic model" for item in self.app.subheader))
+
     def test_dashboard_can_be_created_from_dashboard_navigation(self):
         self.start_dashboard_creation()
         next(item for item in self.app.text_input if item.label == "Název nového dashboardu").input("Finance")
@@ -355,7 +424,8 @@ LIMIT 5""",
 
     def test_dashboard_menu_reveals_creation_form_only_on_request(self):
         buttons = {item.label: item.proto.type for item in self.app.button}
-        self.assertEqual(buttons["Dashboardy"], buttons["Analytický chat"])
+        self.assertEqual(buttons["Dashboardy"], "secondary")
+        self.assertEqual(buttons["Analytický chat"], "primary")
         self.open_dashboard_menu()
         button_labels = [item.label for item in self.app.button]
         self.assertLess(button_labels.index("Dashboardy"), button_labels.index("Můj dashboard"))

@@ -44,6 +44,7 @@ from dashboard import (
     save_dashboard_snapshot,
 )
 from ontology import answer_knowledge_question, draft_preview, normalize_semantic_model, upsert_item, validate_relationship
+from schema_diagram import render_schema_diagram
 import duckdb
 import numpy as np
 import pandas as pd
@@ -73,7 +74,12 @@ st.set_page_config(page_title="Biizy · BI easy", page_icon="✦", layout="wide"
 TEXT = {
     "cs": {
         "language": "Jazyk rozhraní", "sidebar_subtitle": "BI easy · ERP × CRM přehled",
-        "workspace": "Pracovní plocha", "analytics_chat": "Analytický chat", "dashboards": "Dashboardy", "saved_chats": "Uložené chaty",
+        "workspace": "Pracovní plocha", "data_sources": "Zdroje dat", "analytics_chat": "Analytický chat", "dashboards": "Dashboardy", "saved_chats": "Uložené chaty",
+        "data_sources_eyebrow": "PŘIPRAVUJEME", "data_sources_title": "Zdroje dat", "data_sources_intro": "Připojte data, se kterými bude Biizy pracovat.",
+        "data_sources_notice_title": "Připojení zdrojů dat zatím není aktivní", "data_sources_notice": "Tato funkcionalita bude teprve zprovozněna. Prozatím aplikace pracuje s nahranými zkušebními ERP a CRM daty.",
+        "data_sources_groups": "Vyberte typ zdroje", "data_sources_group_count": "{count} zdroje", "data_sources_group_microsoft": "Microsoft ekosystém", "data_sources_group_microsoft_description": "Fabric, SQL Server a Azure SQL.",
+        "data_sources_group_databases": "Relační databáze", "data_sources_group_databases_description": "PostgreSQL, MySQL a MariaDB.", "data_sources_group_cloud": "Cloudové datové platformy", "data_sources_group_cloud_description": "Snowflake a Databricks.",
+        "data_sources_group_files": "Soubory z počítače", "data_sources_group_files_description": "CSV, Excel, textové soubory a JSON.", "data_sources_coming_soon": "Již brzy",
         "dashboard_name": "Název nového dashboardu", "rename_dashboard_name": "Název dashboardu", "rename_dashboard": "Přejmenovat", "dashboard_renamed": "Dashboard byl přejmenován na „{dashboard}“.", "create_dashboard": "Vytvořit nový",
         "save_dashboard": "Uložit", "save_chat": "Uložit chat", "chat_saved": "Chat byl uložen.",
         "chat_name": "Název chatu", "rename_chat": "Uložit název", "chat_name_required": "Zadejte název chatu.",
@@ -82,11 +88,11 @@ TEXT = {
         "new_dashboard_placeholder": "Nový dashboard",
         "save_destination": "Uloží se do dashboardu <strong>{dashboard}</strong> na stránku <strong>{page}</strong> s názvem <strong>{title}</strong>.",
         "local_data": "Lokální data · DuckDB · SQL pouze pro čtení", "demo_data": "Demo data 2026",
-        "demo_project_title": "Biizy je work in progress",
-        "demo_project_intro": "Pracovní demo pro rychlé zkoumání propojených ERP a CRM dat.",
-        "demo_project_capabilities": "Co aplikace umí", "demo_project_capability_one": "Odpovídat na otázky nad ukázkovými daty přirozeným jazykem.", "demo_project_capability_two": "Zobrazit výsledek jako tabulku, metriku nebo graf.", "demo_project_capability_three": "Uložit výsledek na vlastní dashboard a dále jej upravovat.",
-        "demo_project_how_to": "Jak na to", "demo_project_how_to_one": "Napište dotaz do Analytického chatu.", "demo_project_how_to_two": "Výsledek upřesněte nebo z něj vytvořte graf.", "demo_project_how_to_three": "Přidejte ho na vybranou stránku dashboardu.",
-        "demo_project_roadmap": "Plány", "demo_project_roadmap_one": "Napojení na Microsoft Fabric Data včetně ontologie.", "demo_project_roadmap_two": "Tvorba ontologie přímo v aplikaci.", "demo_project_roadmap_three": "Další datové zdroje a analytické možnosti.",
+        "demo_project_title": "Biizy · aktuální stav projektu",
+        "demo_project_intro": "Lokální prototyp pro rychlé zkoumání propojených ERP a CRM dat — od dotazu až po sdílený dashboard.",
+        "demo_project_capabilities": "Dostupné v demu", "demo_project_capability_one": "Procházet ukázková data a jejich vztahy v semantickém modelu.", "demo_project_capability_two": "Pokládat analytické otázky přirozeným jazykem a zobrazit tabulku, metriku nebo graf.", "demo_project_capability_three": "Uložit výsledek či konverzaci a upravovat vlastní dashboardy.",
+        "demo_project_how_to": "Doporučený postup", "demo_project_how_to_one": "Začněte v Semantickém modelu a ověřte si dostupné tabulky a vazby.", "demo_project_how_to_two": "V Analytickém chatu napište otázku a podle potřeby výsledek upřesněte.", "demo_project_how_to_three": "Přidejte vybraný výsledek na stránku dashboardu nebo uložte celý chat.",
+        "demo_project_roadmap": "Další rozvoj", "demo_project_roadmap_one": "Read-only napojení na Microsoft Fabric a další schválené zdroje.", "demo_project_roadmap_two": "Tvorba a správa ontologie přímo v aplikaci.", "demo_project_roadmap_three": "Rozšířené analytické scénáře, vizualizace a spolupráce nad dashboardy.",
         "demo_project_feedback": "Komentáře a nápady posílejte na {email}.",
         "hide_demo_project_notice": "Skrýt", "show_demo_project_notice": "Informace o projektu",
         "reset_demo": "Resetovat demo", "reset_demo_help": "Smaže všechny společně uložené dashboardy, změny i chaty a vrátí aplikaci do výchozího stavu.",
@@ -135,7 +141,12 @@ TEXT = {
     },
     "en": {
         "language": "Interface language", "sidebar_subtitle": "BI easy · ERP × CRM overview",
-        "workspace": "Workspace", "analytics_chat": "Analytics chat", "dashboards": "Dashboards", "saved_chats": "Saved chats",
+        "workspace": "Workspace", "data_sources": "Data sources", "analytics_chat": "Analytics chat", "dashboards": "Dashboards", "saved_chats": "Saved chats",
+        "data_sources_eyebrow": "COMING SOON", "data_sources_title": "Data sources", "data_sources_intro": "Connect the data that Biizy will work with.",
+        "data_sources_notice_title": "Data-source connections are not active yet", "data_sources_notice": "This functionality is still being prepared. The app currently works with loaded ERP and CRM sample data.",
+        "data_sources_groups": "Choose a source type", "data_sources_group_count": "{count} sources", "data_sources_group_microsoft": "Microsoft ecosystem", "data_sources_group_microsoft_description": "Fabric, SQL Server, and Azure SQL.",
+        "data_sources_group_databases": "Relational databases", "data_sources_group_databases_description": "PostgreSQL, MySQL, and MariaDB.", "data_sources_group_cloud": "Cloud data platforms", "data_sources_group_cloud_description": "Snowflake and Databricks.",
+        "data_sources_group_files": "Files from your computer", "data_sources_group_files_description": "CSV, Excel, text files, and JSON.", "data_sources_coming_soon": "Coming soon",
         "dashboard_name": "New dashboard name", "rename_dashboard_name": "Dashboard name", "rename_dashboard": "Rename", "dashboard_renamed": "Dashboard renamed to “{dashboard}”.", "create_dashboard": "Create new",
         "save_dashboard": "Save", "save_chat": "Save chat", "chat_saved": "Chat saved.",
         "chat_name": "Chat name", "rename_chat": "Save name", "chat_name_required": "Enter a chat name.",
@@ -144,11 +155,11 @@ TEXT = {
         "new_dashboard_placeholder": "New dashboard",
         "save_destination": "This will be saved to dashboard <strong>{dashboard}</strong>, page <strong>{page}</strong>, as <strong>{title}</strong>.",
         "local_data": "Local data · DuckDB · read-only SQL", "demo_data": "2026 demo data",
-        "demo_project_title": "Biizy is a work in progress",
-        "demo_project_intro": "A working demo for exploring connected ERP and CRM data quickly.",
-        "demo_project_capabilities": "What the app can do", "demo_project_capability_one": "Answer questions about the sample data in natural language.", "demo_project_capability_two": "Show results as a table, metric, or chart.", "demo_project_capability_three": "Save results to your dashboard and refine them later.",
-        "demo_project_how_to": "How to use it", "demo_project_how_to_one": "Ask a question in Analytics chat.", "demo_project_how_to_two": "Refine the result or turn it into a chart.", "demo_project_how_to_three": "Add it to a selected dashboard page.",
-        "demo_project_roadmap": "Plans", "demo_project_roadmap_one": "Microsoft Fabric Data connection, including ontology support.", "demo_project_roadmap_two": "Ontology creation directly in the app.", "demo_project_roadmap_three": "Additional data sources and analytical capabilities.",
+        "demo_project_title": "Biizy · project status",
+        "demo_project_intro": "A local prototype for quickly exploring connected ERP and CRM data — from a question to a shared dashboard.",
+        "demo_project_capabilities": "Available in the demo", "demo_project_capability_one": "Browse sample data and its relationships in the semantic model.", "demo_project_capability_two": "Ask analytical questions in natural language and view a table, metric, or chart.", "demo_project_capability_three": "Save a result or conversation and refine your own dashboards.",
+        "demo_project_how_to": "Recommended flow", "demo_project_how_to_one": "Start in the Semantic model to review available tables and relationships.", "demo_project_how_to_two": "Ask a question in Analytics chat and refine the result when needed.", "demo_project_how_to_three": "Add the chosen result to a dashboard page or save the entire chat.",
+        "demo_project_roadmap": "Roadmap", "demo_project_roadmap_one": "Read-only Microsoft Fabric connections and other approved data sources.", "demo_project_roadmap_two": "Create and manage the ontology directly in the app.", "demo_project_roadmap_three": "Expanded analytical scenarios, visualizations, and dashboard collaboration.",
         "demo_project_feedback": "Please send comments and ideas to {email}.",
         "hide_demo_project_notice": "Hide", "show_demo_project_notice": "Project information",
         "sql_trace": "SQL trace — show the executed query", "sql_rows": "DuckDB · read-only SELECT · rows returned: {rows}",
@@ -983,6 +994,24 @@ def style_app():
         [data-testid='stSidebar'] [role='radiogroup'] label p {{ color: white; }}
         [data-testid='stSidebar'] [role='radiogroup'] label:has(input:checked) {{ background: var(--rose); color: var(--ink); }}
         [data-testid='stSidebar'] [role='radiogroup'] label:has(input:checked) p {{ color: var(--ink); }}
+        [data-testid='stSidebar'] [class*='st-key-sidebar-nav-'] [data-testid='stButton'] > button {{
+            justify-content: flex-start; min-height: 2.7rem; border: 1px solid transparent !important;
+            border-radius: 10px !important; color: white !important; background: transparent !important;
+            transition: background-color .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease;
+        }}
+        [data-testid='stSidebar'] [class*='st-key-sidebar-nav-'] [data-testid='stButton'] > button:hover {{
+            background: rgba(255,255,255,.1) !important;
+        }}
+        [data-testid='stSidebar'] [class*='st-key-sidebar-nav-'] [data-testid='stButton'] > button[kind='primary'] {{
+            color: var(--ink) !important; background: var(--rose) !important; border-color: #F2C9DA !important;
+            box-shadow: inset 4px 0 0 var(--accent), 0 5px 14px rgba(0,0,0,.16) !important; font-weight: 700 !important;
+        }}
+        [data-testid='stSidebar'] [class*='st-key-sidebar-nav-'] [data-testid='stButton'] > button[kind='primary']:hover {{
+            background: #F6DFE8 !important;
+        }}
+        [data-testid='stSidebar'] [class*='st-key-sidebar-nav-'] [data-testid='stButton'] > button[kind='primary'] :is(p, span, svg) {{
+            color: var(--ink) !important; fill: currentColor !important;
+        }}
         [data-testid='stSidebar'] hr {{ border-color: rgba(255,255,255,.16); }}
         [data-testid='stSidebar'] button[kind='headerNoPadding'] {{ color: white; }}
         [data-testid='stTextArea'] textarea, [data-testid='stTextInput'] input,
@@ -1192,17 +1221,23 @@ def style_app():
         .semantic-schema-dialog {{ display: none; }}
         [data-testid='stDialog']:has(.semantic-schema-dialog) [role='dialog'] {{ width: min(94vw, 1120px) !important; max-width: calc(100vw - 1.5rem) !important; }}
         [data-testid='stDialog']:has(.semantic-schema-dialog) [data-testid='stDialogContent'] {{ padding: 1.35rem 1.55rem 1.55rem; }}
-        .schema-canvas {{ display: grid; grid-template-columns: minmax(0, 1fr) 4.25rem minmax(0, 1fr); gap: .75rem; align-items: center; padding: 1.25rem; background: #F2F8F5; border: 1px solid #D5E6DE; border-radius: 16px; }}
-        .schema-node {{ min-width: 0; background: #FFFFFF; border: 1px solid #B7CEC4; border-radius: 14px; box-shadow: 0 5px 16px rgba(11,59,46,.08); overflow: hidden; }}
-        .schema-node__header {{ padding: .8rem 1rem; background: #0B3B2E; color: #FFFFFF; }}
-        .schema-node__header strong, .schema-node__header code {{ display: block; color: inherit; }}
-        .schema-node__header code {{ margin-top: .15rem; opacity: .82; font-size: .78rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
-        .schema-node__body {{ padding: .85rem 1rem; color: #35574B; font-size: .84rem; line-height: 1.6; }}
-        .schema-node__key {{ color: #AD1457; font-weight: 800; }}
-        .schema-edge {{ min-width: 0; color: #0B3B2E; text-align: center; font-size: .76rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }}
-        .schema-edge::before {{ content: '⟶'; display: block; color: #C2185B; font-size: 1.55rem; line-height: 1; }}
-        .schema-children {{ display: grid; gap: 1rem; }}
-        @media (max-width: 700px) {{ .schema-canvas {{ grid-template-columns: 1fr; }} .schema-edge::before {{ content: '↓'; }} }}
+        [data-testid='stSidebar'] .st-key-workspace-foundation {{
+            margin-bottom: .7rem; padding-bottom: .85rem; border-bottom: 1px solid rgba(159,226,207,.42);
+        }}
+        .data-sources-heading {{ margin: 1.8rem 0 1.5rem; }}
+        .data-sources-heading__eyebrow {{ margin: 0 0 .45rem; color: var(--accent); font-size: .76rem; font-weight: 800; letter-spacing: .14em; }}
+        .data-sources-heading h1 {{ margin: 0; }}
+        .data-sources-heading p:last-child {{ max-width: 42rem; margin: .6rem 0 0; color: var(--muted); font-size: 1rem; line-height: 1.65; }}
+        .data-sources-notice {{ display: grid; grid-template-columns: auto 1fr; gap: .9rem; align-items: start; margin: 0 0 2rem; padding: 1.05rem 1.15rem; background: var(--rose); border: 1px solid #E8BED1; border-left: 5px solid var(--accent); border-radius: 12px; }}
+        .data-sources-notice__mark {{ display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--accent); color: white; font-weight: 800; }}
+        .data-sources-notice strong {{ display: block; margin-bottom: .2rem; color: var(--ink); }}
+        .data-sources-notice p {{ margin: 0; color: #62334B; line-height: 1.55; }}
+        .data-sources-section-title {{ margin: 1.7rem 0 .75rem; color: var(--ink); font-size: .86rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
+        .data-source-card {{ height: 100%; min-height: 7.6rem; box-sizing: border-box; padding: .9rem 1rem 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }}
+        .data-source-card__top {{ display: flex; justify-content: flex-end; align-items: start; min-height: 1rem; }}
+        .data-source-card__status {{ color: var(--accent); font-size: .7rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }}
+        .data-source-card h3 {{ margin: .5rem 0 .25rem; font-size: .98rem !important; letter-spacing: -.02em; }}
+        .data-source-card p {{ margin: 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }}
         .st-key-analytics_chat_form {{ padding: .8rem 1rem; }}
         @media (max-width: 700px) {{
             .block-container {{ padding: 1.25rem 1rem 2rem; }}
@@ -1661,7 +1696,7 @@ def render_analytics_chat(document):
     if document.get("semantic_model") != semantic_model:
         document["semantic_model"] = semantic_model
         save_dashboard(document)
-    knowledge_answer = answer_knowledge_question(query, semantic_model)
+    knowledge_answer = answer_knowledge_question(query, semantic_model, st.session_state.get("language", "en"))
     if knowledge_answer and not visual:
         st.session_state.analysis_context = None
         st.session_state.chat_history.append({"role": "assistant", "mode": "knowledge", **knowledge_answer})
@@ -1746,61 +1781,62 @@ def render_analytics_chat(document):
     st.rerun()
 
 
-def _semantic_status_options():
-    return ["approved", "draft"]
-
-
-def _schema_node_html(table, relationship_columns=()):
-    columns = "".join(
-        f"<div class='schema-node__key'>{escape(column)}</div>"
-        for column in relationship_columns
-    ) or "<div>Bez navázaných klíčů</div>"
-    grain = escape(table.get("grain") or table.get("description") or "")
-    return (
-        "<div class='schema-node'>"
-        f"<div class='schema-node__header'><strong>{escape(table['name'])}</strong><code>{escape(table['technical_name'])}</code></div>"
-        f"<div class='schema-node__body'>{columns}<div>{grain}</div></div>"
-        "</div>"
+def render_data_sources():
+    """Render a read-only preview of the planned source-connection workflow."""
+    cs = st.session_state.get("language") == "cs"
+    source_groups = [
+        ("data-source-group-microsoft", ":material/apps:", "data_sources_group_microsoft", "data_sources_group_microsoft_description", [
+            ("Microsoft Fabric", "OneLake, Lakehouse, Warehouse a Power BI datové toky." if cs else "OneLake, Lakehouse, Warehouse, and Power BI dataflows."),
+            ("Microsoft SQL Server", "SQL Server a Azure SQL Database v jednom přehledu." if cs else "SQL Server and Azure SQL Database in one view."),
+        ]),
+        ("data-source-group-databases", ":material/storage:", "data_sources_group_databases", "data_sources_group_databases_description", [
+            ("PostgreSQL", "Produkční databáze, datový sklad nebo aplikační data." if cs else "Production databases, data warehouses, or application data."),
+            ("MySQL / MariaDB", "Operační data z aplikací, e-shopů a interních systémů." if cs else "Operational data from apps, e-commerce, and internal systems."),
+        ]),
+        ("data-source-group-cloud", ":material/cloud:", "data_sources_group_cloud", "data_sources_group_cloud_description", [
+            ("Snowflake", "Cloudový datový sklad pro sdílenou analytiku." if cs else "A cloud data warehouse for shared analytics."),
+            ("Databricks", "Lakehouse tabulky a připravené datové produkty." if cs else "Lakehouse tables and prepared data products."),
+        ]),
+        ("data-source-group-files", ":material/upload_file:", "data_sources_group_files", "data_sources_group_files_description", [
+            ("CSV", "Tabulky exportované z účetnictví, CRM nebo e-shopu." if cs else "Tables exported from accounting, CRM, or e-commerce."),
+            ("Excel", "Soubory .xlsx a .xls včetně vybraných listů." if cs else ".xlsx and .xls workbooks, including selected sheets."),
+            ("Text files" if not cs else "Textové soubory", "TXT a datové výstupy s vlastním oddělovačem." if cs else "TXT files and delimited data exports."),
+            ("JSON", "JSON exporty z aplikací a API." if cs else "JSON exports from applications and APIs."),
+        ]),
+    ]
+    st.markdown(
+        f"<div class='data-sources-heading'><p class='data-sources-heading__eyebrow'>{escape(t('data_sources_eyebrow'))}</p>"
+        f"<h1>{escape(t('data_sources_title'))}</h1><p>{escape(t('data_sources_intro'))}</p></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<section class='data-sources-notice'><span class='data-sources-notice__mark'>!</span><div>"
+        f"<strong>{escape(t('data_sources_notice_title'))}</strong><p>{escape(t('data_sources_notice'))}</p></div></section>",
+        unsafe_allow_html=True,
     )
 
-
-def render_semantic_schema_diagram(model):
-    """Render a lightweight, responsive ER overview from the stored relationships."""
-    tables_by_name = {item["technical_name"]: item for item in model["tables"]}
-    outgoing = {}
-    for relationship in model["relationships"]:
-        outgoing.setdefault(relationship["from_table"], []).append(relationship)
-    roots = [name for name in outgoing if name in tables_by_name] or list(tables_by_name)
-    rendered = set()
-    for source_name in roots:
-        if source_name in rendered or source_name not in outgoing:
-            continue
-        rendered.add(source_name)
-        relationships = outgoing[source_name]
-        source_columns = sorted({item["from_column"] for item in relationships})
-        targets = []
-        edge_labels = []
-        for relationship in relationships:
-            target = tables_by_name.get(relationship["to_table"])
-            if target is None:
-                continue
-            targets.append(_schema_node_html(target, [relationship["to_column"]]))
-            edge_labels.append(
-                f"{escape(relationship.get('cardinality', 'n/a'))}<br><small>{escape(relationship['from_column'])} → {escape(relationship['to_column'])}</small>"
-            )
-        if not targets:
-            continue
-        st.markdown(
-            "<div class='schema-canvas'>"
-            f"{_schema_node_html(tables_by_name[source_name], source_columns)}"
-            f"<div class='schema-edge'>{'<hr>'.join(edge_labels)}</div>"
-            f"<div class='schema-children'>{''.join(targets)}</div>"
-            "</div>",
-            unsafe_allow_html=True,
+    def source_card(name, description):
+        return (
+            "<article class='data-source-card'><div class='data-source-card__top'>"
+            f"<span class='data-source-card__status'>{escape(t('data_sources_coming_soon'))}</span>"
+            f"</div><h3>{escape(name)}</h3><p>{escape(description)}</p></article>"
         )
-    unconnected = [item for name, item in tables_by_name.items() if name not in rendered and name not in {relationship["to_table"] for relationship in model["relationships"]}]
-    if unconnected:
-        st.caption("Tabulky bez vztahu: " + ", ".join(f"{item['name']} (`{item['technical_name']}`)" for item in unconnected))
+
+    st.markdown(f"<p class='data-sources-section-title'>{escape(t('data_sources_groups'))}</p>", unsafe_allow_html=True)
+    for _group_key, group_icon, title_key, description_key, sources in source_groups:
+        label = f"{t(title_key)} · {t('data_sources_group_count', count=len(sources))}"
+        with st.expander(label, expanded=False, icon=group_icon):
+            st.caption(t(description_key))
+            per_row = 4 if len(sources) == 4 else 3
+            for start in range(0, len(sources), per_row):
+                columns = st.columns(per_row, gap="large")
+                for column, (name, description) in zip(columns, sources[start:start + per_row]):
+                    with column:
+                        st.markdown(source_card(name, description), unsafe_allow_html=True)
+
+
+def _semantic_status_options():
+    return ["approved", "draft"]
 
 
 def _save_semantic_relationship(document, model, relationship):
@@ -1817,12 +1853,12 @@ def render_semantic_schema_dialog(document):
     document["semantic_model"] = model
     cs = st.session_state.get("language") == "cs"
     st.caption(
-        "Diagram vychází z aktuálně uloženého semantického modelu." if cs
-        else "The diagram is generated from the currently saved semantic model."
+        "Kliknutím na kartu tabulky rozbalíte všechny sloupce a jejich datové typy." if cs
+        else "Click a table card to expand all its columns and data types."
     )
-    diagram_tab, relationships_tab = st.tabs(["Diagram", "Vztahy" if cs else "Relationships"])
+    diagram_tab, relationships_tab = st.tabs(["Schéma" if cs else "Diagram", "Vztahy" if cs else "Relationships"])
     with diagram_tab:
-        render_semantic_schema_diagram(model)
+        render_schema_diagram(model, get_connection(), "cs" if cs else "en")
     with relationships_tab:
         table_names = [item["technical_name"] for item in model["tables"]]
         labels = {item["technical_name"]: f"{item['name']} · {item['technical_name']}" for item in model["tables"]}
@@ -1887,7 +1923,7 @@ def render_semantic_model(document):
         render_semantic_schema_dialog(document)
     with st.container(border=True):
         st.subheader("AI draft" if cs else "AI draft")
-        st.write(draft_preview(model))
+        st.write(draft_preview(model, "cs" if cs else "en"))
         st.button("Vytvořit AI draft (brzy)" if cs else "Create AI draft (coming soon)", disabled=True, icon=":material/auto_awesome:")
 
     tables_tab, relations_tab, metrics_tab, knowledge_tab = st.tabs(
@@ -2134,22 +2170,48 @@ style_app()
 if "language" not in st.session_state:
     st.session_state.language = "en"
 st.session_state.setdefault("demo_project_notice_hidden", False)
+st.session_state.setdefault("workspace_view", "chat")
 document = load_dashboard()
 with st.sidebar:
     render_sidebar_brand()
-    if st.button(t("analytics_chat"), icon=":material/chat:", use_container_width=True):
+    with st.container(key="workspace-foundation"):
+        if st.button(
+            t("data_sources"), key="sidebar-nav-data-sources", icon=":material/database:",
+            type="primary" if st.session_state.get("workspace_view") == "data_sources" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state.workspace_view = "data_sources"
+            st.session_state.dashboard_menu_open = False
+            st.session_state.dashboard_create_open = False
+            st.session_state.saved_chat_menu_open = False
+            st.rerun()
+        if st.button(
+            "Semantický model" if st.session_state.get("language") == "cs" else "Semantic model",
+            key="sidebar-nav-semantic-model", icon=":material/account_tree:",
+            type="primary" if st.session_state.get("workspace_view") == "semantic_model" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state.workspace_view = "semantic_model"
+            st.session_state.dashboard_menu_open = False
+            st.session_state.dashboard_create_open = False
+            st.session_state.saved_chat_menu_open = False
+            st.rerun()
+    if st.button(
+        t("analytics_chat"), key="sidebar-nav-analytics-chat", icon=":material/chat:",
+        type="primary" if st.session_state.get("workspace_view") == "chat" and not st.session_state.get("active_saved_chat_id") else "secondary",
+        use_container_width=True,
+    ):
         st.session_state.workspace_view = "chat"
+        st.session_state.active_saved_chat_id = None
         st.session_state.dashboard_menu_open = False
         st.session_state.dashboard_create_open = False
         st.session_state.saved_chat_menu_open = False
         st.rerun()
-    if st.button("Semantický model" if st.session_state.get("language") == "cs" else "Semantic model", icon=":material/account_tree:", use_container_width=True):
-        st.session_state.workspace_view = "semantic_model"
-        st.session_state.dashboard_menu_open = False
-        st.session_state.dashboard_create_open = False
-        st.session_state.saved_chat_menu_open = False
-        st.rerun()
-    if st.button(t("dashboards"), icon=":material/dashboard:", use_container_width=True):
+    if st.button(
+        t("dashboards"), key="sidebar-nav-dashboards", icon=":material/dashboard:",
+        type="primary" if st.session_state.get("workspace_view") == "dashboard" else "secondary",
+        use_container_width=True,
+    ):
         st.session_state.dashboard_menu_open = not st.session_state.get("dashboard_menu_open", False)
         st.session_state.saved_chat_menu_open = False
         if not st.session_state.dashboard_menu_open:
@@ -2163,7 +2225,7 @@ with st.sidebar:
                     and st.session_state.get("active_dashboard_id") == dashboard["id"]
                 )
                 if st.button(
-                    dashboard["name"], key=f"open-dashboard-{dashboard['id']}",
+                    dashboard["name"], key=f"sidebar-nav-dashboard-{dashboard['id']}",
                     type="primary" if is_active else "secondary",
                     use_container_width=True,
                 ):
@@ -2195,7 +2257,11 @@ with st.sidebar:
                             st.session_state.selected_dashboard_card = None
                             st.session_state.dashboard_create_open = False
                             st.rerun()
-    if st.button(t("saved_chats"), icon=":material/bookmarks:", use_container_width=True):
+    if st.button(
+        t("saved_chats"), key="sidebar-nav-saved-chats", icon=":material/bookmarks:",
+        type="primary" if st.session_state.get("workspace_view") == "chat" and bool(st.session_state.get("active_saved_chat_id")) else "secondary",
+        use_container_width=True,
+    ):
         st.session_state.saved_chat_menu_open = not st.session_state.get("saved_chat_menu_open", False)
         st.session_state.dashboard_menu_open = False
         st.session_state.dashboard_create_open = False
@@ -2208,7 +2274,7 @@ with st.sidebar:
                     and st.session_state.get("active_saved_chat_id") == saved_chat["id"]
                 )
                 if st.button(
-                    saved_chat["title"], key=f"open-saved-chat-{saved_chat['id']}",
+                    saved_chat["title"], key=f"sidebar-nav-saved-chat-{saved_chat['id']}",
                     type="primary" if is_active else "secondary", use_container_width=True,
                 ):
                     st.session_state.workspace_view = "chat"
@@ -2235,7 +2301,9 @@ if st.session_state.pop("demo_reset_notice", None):
 render_language_switcher()
 render_demo_project_notice()
 
-if st.session_state.get("workspace_view") == "semantic_model":
+if st.session_state.get("workspace_view") == "data_sources":
+    render_data_sources()
+elif st.session_state.get("workspace_view") == "semantic_model":
     render_semantic_model(document)
 elif st.session_state.get("workspace_view") == "dashboard":
     active_dashboard_id = st.session_state.get("active_dashboard_id")

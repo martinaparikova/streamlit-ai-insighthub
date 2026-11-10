@@ -127,10 +127,11 @@ def _matches(question, value):
     return any(token and token.casefold() in prompt for token in value)
 
 
-def answer_knowledge_question(question, model):
+def answer_knowledge_question(question, model, language="cs"):
     """Answer deterministic Czech/English model questions without SQL or an LLM call."""
     model = normalize_semantic_model(model)
     prompt = re.sub(r"\s+", " ", question.casefold()).strip()
+    cs = language == "cs"
     analytical_words = ("show", "zobraz", "kolik", "how many", "count", "sum", "total", "by ", "podle", "za ", "v roce", "month", "měs", "mes", "segment")
     table_words = ("tabulk", "table", "schema", "schém", "modelu", "model")
     metric_words = ("metrik", "metric", "kpi", "jak se počít", "jak se pocit", "how is", "how do", "definition", "definic")
@@ -139,10 +140,13 @@ def answer_knowledge_question(question, model):
 
     if _matches(prompt, table_words) and not _matches(prompt, metric_words):
         tables = "; ".join(f"**{item['name']}** (`{item['technical_name']}`) – {item['description']}" for item in model["tables"])
-        return {"title": "Tabulky v semantickém modelu", "content": f"Model obsahuje {len(model['tables'])} tabulky: {tables}"}
+        return {
+            "title": "Tabulky v semantickém modelu" if cs else "Tables in the semantic model",
+            "content": f"Model obsahuje {len(model['tables'])} tabulky: {tables}" if cs else f"The model contains {len(model['tables'])} tables: {tables}",
+        }
     if _matches(prompt, relation_words):
         relations = "; ".join(f"**{item['name']}**: `{item['from_table']}.{item['from_column']}` → `{item['to_table']}.{item['to_column']}` ({item.get('cardinality', 'n/a')}). {item['description']}" for item in model["relationships"])
-        return {"title": "Vztahy v modelu", "content": relations}
+        return {"title": "Vztahy v modelu" if cs else "Relationships in the model", "content": relations}
     if _matches(prompt, rule_words) and not _matches(prompt, analytical_words):
         rule = next((item for item in model["rules"] if "overdue" in item["id"]), None)
         if rule:
@@ -151,24 +155,30 @@ def answer_knowledge_question(question, model):
     if metric and not _matches(prompt, analytical_words) and (_matches(prompt, metric_words) or len(prompt.split()) <= 6):
         content = f"**{metric['name']}**: {metric['description']}\n\nFormula: `{metric['formula']}`"
         if metric.get("time_dimension"):
-            content += f"\n\nČasová dimenze: `{metric['time_dimension']}`."
+            content += f"\n\n{'Časová dimenze' if cs else 'Time dimension'}: `{metric['time_dimension']}`."
         if metric.get("rules"):
-            content += f"\n\nPravidla: {metric['rules']}"
-        return {"title": f"Definice metriky: {metric['name']}", "content": content}
+            content += f"\n\n{'Pravidla' if cs else 'Rules'}: {metric['rules']}"
+        return {"title": f"{'Definice metriky' if cs else 'Metric definition'}: {metric['name']}", "content": content}
     if _matches(prompt, metric_words) and _matches(prompt, ("dostup", "available", "seznam", "list", "kter")):
         metrics = "; ".join(f"**{item['name']}** – {item['description']}" for item in model["metrics"])
-        return {"title": "Dostupné metriky", "content": metrics}
+        return {"title": "Dostupné metriky" if cs else "Available metrics", "content": metrics}
     term = next((item for item in model["terms"] if _matches(prompt, [item["name"], *item.get("synonyms", [])])), None)
     if term and not _matches(prompt, analytical_words) and (_matches(prompt, ("co je", "co znamen", "what is", "meaning", "vysvětli", "vysvetli")) or len(prompt.split()) <= 5):
         return {"title": term["name"], "content": term["description"]}
     return None
 
 
-def draft_preview(model):
-    """Explain the future AI draft flow without claiming a source connector exists yet."""
+def draft_preview(model, language="en"):
+    """Explain the future AI draft flow in the selected interface language."""
     model = normalize_semantic_model(model)
+    if language == "cs":
+        return (
+            f"AI draft je ve fázi 1 připraven jako workflow placeholder. Aktuální demo model už obsahuje "
+            f"{len(model['tables'])} tabulky, {len(model['relationships'])} vztahy a {len(model['metrics'])} metriky. "
+            "Ve fázi 2 bude AI vytvářet návrh z metadat připojeného zdroje; každá změna se nejdříve ukáže jako návrh k potvrzení."
+        )
     return (
-        f"AI draft je ve fázi 1 připraven jako workflow placeholder. Aktuální demo model už obsahuje "
-        f"{len(model['tables'])} tabulky, {len(model['relationships'])} vztahy a {len(model['metrics'])} metriky. "
-        "Ve fázi 2 bude AI vytvářet návrh z metadat připojeného zdroje; každá změna se nejdříve ukáže jako návrh k potvrzení."
+        f"AI draft is available in phase 1 as a workflow placeholder. The current demo model already contains "
+        f"{len(model['tables'])} tables, {len(model['relationships'])} relationships, and {len(model['metrics'])} metrics. "
+        "In phase 2, AI will create a proposal from the connected source metadata; every change will first be shown as a proposal for confirmation."
     )
