@@ -14,6 +14,8 @@ from analytics import (
     get_llm_sql,
     get_local_plan,
     get_openai_api_key,
+    get_visualization_plan,
+    normalize_visualization_plan,
     normalize_dashboard_editor_plan,
     normalize_plan,
     validate_read_only_sql,
@@ -21,6 +23,19 @@ from analytics import (
 
 
 class AnalyticsPlanTests(unittest.TestCase):
+    def test_visualization_plan_rejects_unknown_columns_and_preserves_safe_line_chart(self):
+        columns = [{"name": "month", "dtype": "datetime64[ns]"}, {"name": "revenue_czk", "dtype": "float64"}]
+        plan = normalize_visualization_plan({
+            "chart_kind": "line", "x": "month", "y": "revenue_czk", "color": "#C2185B",
+            "font": "Roboto", "title_size": 25, "position": "top", "highlight": None,
+        }, columns)
+        self.assertEqual(plan["chart_kind"], "line")
+        with self.assertRaises(ValueError):
+            normalize_visualization_plan({
+                "chart_kind": "line", "x": "month", "y": "missing", "color": "#C2185B",
+                "font": "Roboto", "title_size": 25, "position": "top", "highlight": None,
+            }, columns)
+
     def test_dashboard_editor_plan_rejects_unsafe_or_unknown_fields(self):
         with self.assertRaises(ValueError):
             normalize_dashboard_editor_plan({"action": "run_python", "title": "bad"})
@@ -124,6 +139,46 @@ class AnalyticsPlanTests(unittest.TestCase):
         request_input = json.loads(create.call_args.kwargs["input"])
         self.assertEqual(request_input["conversation"], history)
 
+    def test_visualization_tool_returns_valid_line_plan_from_column_metadata(self):
+        response = SimpleNamespace(
+            output=[
+                SimpleNamespace(
+                    type="function_call",
+                    name="submit_visualization_plan",
+                    arguments=json.dumps({
+                        "chart_kind": "line", "x": "month", "y": "revenue_czk",
+                        "color": "#C2185B", "font": "Roboto", "title_size": 25,
+                        "position": "top", "highlight": None,
+                    }),
+                )
+            ]
+        )
+        create = Mock(return_value=response)
+        fake_openai = SimpleNamespace(
+            APIError=type("APIError", (Exception,), {}),
+            OpenAI=lambda **_: SimpleNamespace(
+                responses=SimpleNamespace(create=create),
+            ),
+        )
+        context = {
+            "columns": [
+                {"name": "month", "dtype": "datetime64[ns]"},
+                {"name": "revenue_czk", "dtype": "float64"},
+            ],
+            "row_count": 12,
+        }
+
+        with patch("analytics.get_openai_api_key", return_value="test-key"), patch.dict("sys.modules", {"openai": fake_openai}):
+            plan = get_visualization_plan("Create a pink line chart by month.", context)
+
+        self.assertEqual(plan["chart_kind"], "line")
+        self.assertEqual(plan["x"], "month")
+        self.assertEqual(plan["y"], "revenue_czk")
+        self.assertEqual(create.call_args.kwargs["tool_choice"], {"type": "function", "name": "submit_visualization_plan"})
+        request_input = json.loads(create.call_args.kwargs["input"])
+        self.assertEqual(request_input["result"], context)
+        self.assertNotIn("sql", request_input["result"])
+
     def test_llm_sql_tool_can_ask_for_clarification(self):
         response = SimpleNamespace(
             output=[
@@ -182,6 +237,29 @@ class AnalyticsPlanTests(unittest.TestCase):
         self.assertEqual(request_input["database_error"], feedback["error"])
         self.assertIn("Correct the query", create.call_args.kwargs["instructions"])
 
+    def test_llm_sql_prompt_uses_duckdb_interval_date_arithmetic(self):
+        response = SimpleNamespace(
+            output=[
+                SimpleNamespace(
+                    type="function_call",
+                    name="submit_analytics_query",
+                    arguments=json.dumps({"sql": "SELECT 1", "clarification": None}),
+                )
+            ]
+        )
+        create = Mock(return_value=response)
+        fake_openai = SimpleNamespace(
+            APIError=type("APIError", (Exception,), {}),
+            OpenAI=lambda **_: SimpleNamespace(responses=SimpleNamespace(create=create)),
+        )
+
+        with patch("analytics.get_openai_api_key", return_value="test-key"), patch.dict("sys.modules", {"openai": fake_openai}):
+            get_llm_sql("What was the total revenue in the last 12 months?", [])
+
+        instructions = create.call_args.kwargs["instructions"]
+        self.assertIn("CURRENT_DATE - INTERVAL 12 MONTH", instructions)
+        self.assertIn("never use three-argument forms", instructions)
+
     def test_read_only_sql_validation_accepts_one_select(self):
         connection = duckdb.connect(":memory:")
         self.assertEqual(validate_read_only_sql("SELECT 1;", connection), "SELECT 1")
@@ -207,6 +285,30 @@ class AnalyticsPlanTests(unittest.TestCase):
         )
         connection.close()
 
+    def test_read_only_sql_normalizes_three_argument_date_add_for_duckdb(self):
+        connection = duckdb.connect(":memory:")
+        sql = validate_read_only_sql(
+            "SELECT date_add('month', -12, CURRENT_DATE) AS twelve_months_ago",
+            connection,
+        )
+
+        self.assertEqual(
+            sql,
+            "SELECT date_add(CURRENT_DATE, INTERVAL '-12 months') AS twelve_months_ago",
+        )
+        self.assertEqual(
+            connection.execute(sql).fetchone(),
+            connection.execute("SELECT CURRENT_DATE - INTERVAL 12 MONTH").fetchone(),
+        )
+        connection.close()
+
+    def test_date_macro_normalization_does_not_rewrite_string_literals(self):
+        connection = duckdb.connect(":memory:")
+        sql = "SELECT 'date_add(''month'', -12, CURRENT_DATE)' AS example"
+
+        self.assertEqual(validate_read_only_sql(sql, connection), sql)
+        connection.close()
+
     def test_read_only_sql_validation_rejects_writes_and_multiple_statements(self):
         connection = duckdb.connect(":memory:")
         for sql in (
@@ -226,6 +328,17 @@ class AnalyticsPlanTests(unittest.TestCase):
         sql = build_bounded_select_sql("SELECT * FROM range(1000) AS data", connection, row_limit=25)
         rows = connection.execute(sql).fetchall()
         self.assertEqual(len(rows), 25)
+        connection.close()
+
+    def test_bounded_select_keeps_trailing_line_comment_from_hiding_enforced_limit(self):
+        connection = duckdb.connect(":memory:")
+        sql = build_bounded_select_sql(
+            "SELECT 1 AS min_date, 2 AS max_date -- generated comment",
+            connection,
+        )
+
+        self.assertEqual(connection.execute(sql).fetchall(), [(1, 2)])
+        self.assertIn("\n) AS _bounded_result LIMIT 500", sql)
         connection.close()
 
     def test_local_fallback_understands_three_worst_products(self):

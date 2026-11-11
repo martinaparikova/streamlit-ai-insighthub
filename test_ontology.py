@@ -10,14 +10,14 @@ class OntologyTests(unittest.TestCase):
     def test_answers_table_question_without_sql(self):
         answer = answer_knowledge_question("Jaké tabulky jsou v modelu?", self.model)
 
-        self.assertEqual(answer["title"], "Tabulky v semantickém modelu")
+        self.assertEqual(answer["title"], "Tabulky v ontologii")
         self.assertIn("`companies`", answer["content"])
         self.assertIn("`invoices`", answer["content"])
 
     def test_english_knowledge_answer_uses_english_ui_copy(self):
         answer = answer_knowledge_question("What tables are in the model?", self.model, "en")
 
-        self.assertEqual(answer["title"], "Tables in the semantic model")
+        self.assertEqual(answer["title"], "Tables in the ontology")
         self.assertIn("The model contains 3 tables", answer["content"])
         self.assertIn("**Companies**", answer["content"])
         self.assertNotIn("**Firmy**", answer["content"])

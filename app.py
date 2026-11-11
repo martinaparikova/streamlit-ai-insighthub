@@ -16,6 +16,7 @@ from analytics import (
     get_llm_sql,
     get_local_plan,
     get_openai_api_key,
+    get_visualization_plan,
     validate_read_only_sql,
 )
 from dashboard import (
@@ -90,8 +91,8 @@ TEXT = {
         "local_data": "Lokální data · DuckDB · SQL pouze pro čtení", "demo_data": "Demo data 2026",
         "demo_project_title": "Biizy · aktuální stav projektu",
         "demo_project_intro": "Lokální prototyp pro rychlé zkoumání propojených ERP a CRM dat — od dotazu až po sdílený dashboard.",
-        "demo_project_capabilities": "Dostupné v demu", "demo_project_capability_one": "Procházet ukázková data a jejich vztahy v semantickém modelu.", "demo_project_capability_two": "Pokládat analytické otázky přirozeným jazykem a zobrazit tabulku, metriku nebo graf.", "demo_project_capability_three": "Uložit výsledek či konverzaci a upravovat vlastní dashboardy.",
-        "demo_project_how_to": "Doporučený postup", "demo_project_how_to_one": "Začněte v Semantickém modelu a ověřte si dostupné tabulky a vazby.", "demo_project_how_to_two": "V Analytickém chatu napište otázku a podle potřeby výsledek upřesněte.", "demo_project_how_to_three": "Přidejte vybraný výsledek na stránku dashboardu nebo uložte celý chat.",
+        "demo_project_capabilities": "Dostupné v demu", "demo_project_capability_one": "Procházet ukázková data a jejich vztahy v ontologii.", "demo_project_capability_two": "Pokládat analytické otázky přirozeným jazykem a zobrazit tabulku, metriku nebo graf.", "demo_project_capability_three": "Uložit výsledek či konverzaci a upravovat vlastní dashboardy.",
+        "demo_project_how_to": "Doporučený postup", "demo_project_how_to_one": "Začněte v Ontologii a ověřte si dostupné tabulky a vazby.", "demo_project_how_to_two": "V Analytickém chatu napište otázku a podle potřeby výsledek upřesněte.", "demo_project_how_to_three": "Přidejte vybraný výsledek na stránku dashboardu nebo uložte celý chat.",
         "demo_project_roadmap": "Další rozvoj", "demo_project_roadmap_one": "Read-only napojení na Microsoft Fabric a další schválené zdroje.", "demo_project_roadmap_two": "Tvorba a správa ontologie přímo v aplikaci.", "demo_project_roadmap_three": "Rozšířené analytické scénáře, vizualizace a spolupráce nad dashboardy.",
         "demo_project_feedback": "Komentáře a nápady posílejte na {email}.",
         "hide_demo_project_notice": "Skrýt", "show_demo_project_notice": "Informace o projektu",
@@ -113,7 +114,7 @@ TEXT = {
         "chat_guide": "Jak pracovat s chatem", "chat_empty": "Co chcete zjistit ze svých dat?",
         "chat_empty_hint": "Začněte otázkou. Výsledek můžete upřesnit, zobrazit v grafu a uložit na vybranou stránku dashboardu.",
         "new_conversation": "Nová konverzace", "question": "Váš dotaz", "question_placeholder": "Např. Kolik faktur je po splatnosti?",
-        "question_help": "Napište otázku k datům nebo pokyn pro vytvoření grafu.", "show_answer": "Zobrazit odpověď", "create_chart": "Vytvořit graf", "previous_turn": "Předchozí dotaz · {question}",
+        "question_help": "Napište otázku k datům nebo pokyn pro vytvoření grafu.", "show_answer": "Zobrazit odpověď", "create_chart": "Vytvořit graf", "previous_turn": "Předchozí dotaz · {question}", "chat_processing": "Analyzuji dotaz…",
         "missing_prompt": "Napište prosím dotaz nebo pokyn.", "local_fallback": "Odpověď vznikla podle lokálních demo pravidel, protože OpenAI plánování nebylo dostupné.",
         "query_result_summary": "Výsledek bezpečně spuštěného SQL dotazu pouze pro čtení.",
         "query_value": "Výsledek",
@@ -157,8 +158,8 @@ TEXT = {
         "local_data": "Local data · DuckDB · read-only SQL", "demo_data": "2026 demo data",
         "demo_project_title": "Biizy · project status",
         "demo_project_intro": "A local prototype for quickly exploring connected ERP and CRM data — from a question to a shared dashboard.",
-        "demo_project_capabilities": "Available in the demo", "demo_project_capability_one": "Browse sample data and its relationships in the semantic model.", "demo_project_capability_two": "Ask analytical questions in natural language and view a table, metric, or chart.", "demo_project_capability_three": "Save a result or conversation and refine your own dashboards.",
-        "demo_project_how_to": "Recommended flow", "demo_project_how_to_one": "Start in the Semantic model to review available tables and relationships.", "demo_project_how_to_two": "Ask a question in Analytics chat and refine the result when needed.", "demo_project_how_to_three": "Add the chosen result to a dashboard page or save the entire chat.",
+        "demo_project_capabilities": "Available in the demo", "demo_project_capability_one": "Browse sample data and its relationships in the ontology.", "demo_project_capability_two": "Ask analytical questions in natural language and view a table, metric, or chart.", "demo_project_capability_three": "Save a result or conversation and refine your own dashboards.",
+        "demo_project_how_to": "Recommended flow", "demo_project_how_to_one": "Start in the Ontology to review available tables and relationships.", "demo_project_how_to_two": "Ask a question in Analytics chat and refine the result when needed.", "demo_project_how_to_three": "Add the chosen result to a dashboard page or save the entire chat.",
         "demo_project_roadmap": "Roadmap", "demo_project_roadmap_one": "Read-only Microsoft Fabric connections and other approved data sources.", "demo_project_roadmap_two": "Create and manage the ontology directly in the app.", "demo_project_roadmap_three": "Expanded analytical scenarios, visualizations, and dashboard collaboration.",
         "demo_project_feedback": "Please send comments and ideas to {email}.",
         "hide_demo_project_notice": "Hide", "show_demo_project_notice": "Project information",
@@ -178,7 +179,7 @@ TEXT = {
         "chat_guide": "How to use the chat", "chat_empty": "What would you like to learn from your data?",
         "chat_empty_hint": "Start with a question. Refine the result, view it as a chart and save it to a selected dashboard page.",
         "new_conversation": "New conversation", "question": "Your question", "question_placeholder": "For example: How many overdue invoices do we have?",
-        "question_help": "Ask a question about the data or provide instructions for a chart.", "show_answer": "Show answer", "create_chart": "Create chart", "previous_turn": "Previous question · {question}",
+        "question_help": "Ask a question about the data or provide instructions for a chart.", "show_answer": "Show answer", "create_chart": "Create chart", "previous_turn": "Previous question · {question}", "chat_processing": "Analyzing your question…",
         "missing_prompt": "Enter a question or an instruction.", "local_fallback": "This response uses local demo rules because OpenAI planning was unavailable.",
         "query_result_summary": "Result from a safely executed read-only SQL query.",
         "query_value": "Result",
@@ -473,6 +474,12 @@ def parse_visual_prompt(text):
     )
     if "histogram" in prompt:
         spec["kind"] = "bar"  # Monthly aggregates are correctly visualized as a bar chart, not a statistical histogram.
+    elif any(term in prompt for term in ["line chart", "line graph", "spojnic"]):
+        spec["kind"] = "line"
+    elif any(term in prompt for term in ["area chart", "area graph", "ploÅ¡n", "plosn"]):
+        spec["kind"] = "area"
+    elif any(term in prompt for term in ["pie chart", "pie graph", "kolÃ¡Ä", "kolac"]):
+        spec["kind"] = "pie"
     return spec
 
 
@@ -538,13 +545,39 @@ def chart_spec_from_result(result, prompt=""):
         if x_column is None:
             return {"title": result["title"], "kind": "table", "sql": result["sql"], "x": data.columns[0], "y": data.columns[-1], "color": GREEN, "highlight": None, "font": "Arial", "title_size": 20, "position": "bottom"}
         design = parse_visual_prompt(prompt or result["title"])
-        design.update({"title": result["title"], "kind": "bar", "sql": result["sql"], "x": x_column, "y": y_column})
+        design.update({"title": result["title"], "sql": result["sql"], "x": x_column, "y": y_column})
         return design
     if result["kind"] == "table" or len(data.columns) < 2:
         return {"title": result["title"], "kind": "table", "sql": result["sql"], "x": data.columns[0], "y": data.columns[-1], "color": GREEN, "highlight": None, "font": "Arial", "title_size": 20, "position": "bottom"}
     design = parse_visual_prompt(prompt or result["title"])
-    design.update({"title": result["title"], "kind": "bar", "sql": result["sql"], "x": data.columns[0], "y": data.columns[1]})
+    design.update({"title": result["title"], "sql": result["sql"], "x": data.columns[0], "y": data.columns[1]})
     return design
+
+
+def ai_chart_spec_from_result(result, prompt):
+    """Apply a reviewed AI visual plan to an executed result, with a local fallback."""
+    fallback = chart_spec_from_result(result, prompt)
+    if not get_openai_api_key() or fallback["kind"] == "table":
+        return fallback
+    data = run_sql(result["sql"])
+    if len(data.columns) < 2:
+        return fallback
+    columns = [
+        {"name": str(name), "dtype": str(dtype)}
+        for name, dtype in data.dtypes.items()
+    ]
+    try:
+        plan = get_visualization_plan(prompt, {"columns": columns, "row_count": len(data)})
+    except (LLMRequestError, ValueError):
+        return fallback
+    if plan is None:
+        return fallback
+    return {
+        **fallback,
+        **plan,
+        "title": result["title"],
+        "sql": result["sql"],
+    }
 
 
 def suggest_visual_title(spec):
@@ -1267,6 +1300,20 @@ def style_app():
         .chat-tooltip p {{ margin: 0 0 .65rem; font-size: inherit; }}
         .chat-tooltip p:last-child {{ margin: 0; color: var(--muted); }}
         .chat-info:hover .chat-tooltip, .chat-info:focus-within .chat-tooltip {{ display: block; }}
+        .analytics-chat-loader {{
+            display: grid; place-items: center; width: 2.65rem; min-height: 2.5rem; margin-top: .8rem;
+        }}
+        .analytics-chat-loader__pie {{
+            width: 1.8rem; height: 1.8rem; border-radius: 50%;
+            background: conic-gradient(var(--accent) 0 42%, #9FDFC9 42% 72%, #E8BED1 72% 88%, #DDE8E3 88% 100%);
+            box-shadow: inset 0 0 0 .32rem var(--surface), 0 0 0 1px rgba(11,59,46,.14);
+        }}
+        .analytics-chat-loader--active .analytics-chat-loader__pie {{ animation: analytics-pie-spin .95s linear infinite; }}
+        .analytics-chat-loader__status {{
+            position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+            clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+        }}
+        @keyframes analytics-pie-spin {{ to {{ transform: rotate(360deg); }} }}
         .semantic-schema-dialog {{ display: none; }}
         [data-testid='stDialog']:has(.semantic-schema-dialog) [role='dialog'] {{ width: min(94vw, 1120px) !important; max-width: calc(100vw - 1.5rem) !important; }}
         [data-testid='stDialog']:has(.semantic-schema-dialog) [data-testid='stDialogContent'] {{ padding: 1.35rem 1.55rem 1.55rem; }}
@@ -1293,7 +1340,10 @@ def style_app():
             [data-testid='stChatMessage'] {{ padding: .85rem !important; gap: .5rem !important; }}
             [data-testid='stForm'] {{ padding: 1rem; }}
         }}
-        @media (prefers-reduced-motion: reduce) {{ .stApp button {{ transition: none !important; }} }}
+        @media (prefers-reduced-motion: reduce) {{
+            .stApp button {{ transition: none !important; }}
+            .analytics-chat-loader--active .analytics-chat-loader__pie {{ animation: none; }}
+        }}
         </style>""",
         unsafe_allow_html=True,
     )
@@ -1626,7 +1676,7 @@ def render_chat_item(item, index):
         if item.get("mode") == "knowledge":
             st.subheader(item["title"])
             st.markdown(item["content"])
-            st.caption("Zdroj: semantický model · bez spuštění SQL" if st.session_state.get("language") == "cs" else "Source: semantic model · no SQL executed")
+            st.caption("Zdroj: ontologie · bez spuštění SQL" if st.session_state.get("language") == "cs" else "Source: ontology · no SQL executed")
             return
         result = item["result"]
         data = run_sql(result["sql"])
@@ -1697,21 +1747,35 @@ def render_chat_item(item, index):
             render_sql_trace_dialog(result["sql"], len(data))
 
 
+def render_analytics_chat_loader():
+    """Render the compact analytical pie indicator beside the chat form."""
+    status = escape(t("chat_processing"))
+    return (
+        "<div class='analytics-chat-loader analytics-chat-loader--active' aria-live='polite'>"
+        "<span class='analytics-chat-loader__pie' aria-hidden='true'></span>"
+        f"<span class='analytics-chat-loader__status'>{status}</span></div>"
+    )
+
+
 def render_analytics_chat_form():
-    with st.form("analytics_chat_form", clear_on_submit=True, enter_to_submit=True):
-        prompt = st.text_input(
-            t("question"),
-            placeholder=t("question_placeholder"),
-            help=t("question_help"),
-        )
-        answer_column, visual_column = st.columns([1, 1], gap="small")
-        answer = answer_column.form_submit_button(
-            t("show_answer"), type="primary", icon=":material/send:", use_container_width=True,
-        )
-        visual = visual_column.form_submit_button(
-            t("create_chart"), icon=":material/bar_chart:", use_container_width=True,
-        )
-    return prompt, answer, visual
+    loader_column, form_column = st.columns([1, 16], gap="small", vertical_alignment="top")
+    with loader_column:
+        loader_slot = st.empty()
+    with form_column:
+        with st.form("analytics_chat_form", clear_on_submit=True, enter_to_submit=True):
+            prompt = st.text_input(
+                t("question"),
+                placeholder=t("question_placeholder"),
+                help=t("question_help"),
+            )
+            answer_column, visual_column = st.columns([1, 1], gap="small")
+            answer = answer_column.form_submit_button(
+                t("show_answer"), type="primary", icon=":material/send:", use_container_width=True,
+            )
+            visual = visual_column.form_submit_button(
+                t("create_chart"), icon=":material/bar_chart:", use_container_width=True,
+            )
+    return prompt, answer, visual, loader_slot
 
 
 def render_analytics_chat(document):
@@ -1799,7 +1863,8 @@ def render_analytics_chat(document):
         st.warning(st.session_state.chat_notice)
         st.session_state.chat_notice = None
 
-    prompt, answer, visual = render_analytics_chat_form()
+    pending_question_slot = st.empty()
+    prompt, answer, visual, loader_slot = render_analytics_chat_form()
 
     if not (answer or visual):
         return
@@ -1808,7 +1873,11 @@ def render_analytics_chat(document):
         st.warning(t("missing_prompt"))
         return
 
-    st.session_state.chat_history.append({"role": "user", "content": query})
+    submitted_question = {"role": "user", "content": query}
+    st.session_state.chat_history.append(submitted_question)
+    with pending_question_slot.container():
+        render_chat_item(submitted_question, len(st.session_state.chat_history) - 1)
+    loader_slot.markdown(render_analytics_chat_loader(), unsafe_allow_html=True)
     # A long-running Streamlit session can still hold a legacy workspace loaded
     # before the v5 migration. Normalize here as a safe final guard.
     semantic_model = normalize_semantic_model(document.get("semantic_model"))
@@ -1819,7 +1888,7 @@ def render_analytics_chat(document):
     if knowledge_answer and not visual:
         st.session_state.analysis_context = None
         st.session_state.chat_history.append({"role": "assistant", "mode": "knowledge", **knowledge_answer})
-        st.session_state.chat_mode = "Semantic model knowledge answer" if st.session_state.get("language") == "en" else "Odpověď ze semantického modelu"
+        st.session_state.chat_mode = "Ontology knowledge answer" if st.session_state.get("language") == "en" else "Odpověď z ontologie"
         st.rerun()
         return
     failed_sql = None
@@ -1893,7 +1962,7 @@ def render_analytics_chat(document):
         st.session_state.chat_notice = t("metric_no_chart")
         visual = False
     if visual:
-        spec = chart_spec_from_result(result, query)
+        spec = ai_chart_spec_from_result(result, query)
         st.session_state.chat_history.append({"role": "assistant", "mode": "visual", "result": result, "spec": spec})
     else:
         st.session_state.chat_history.append({"role": "assistant", "mode": "answer", "result": result})
@@ -2025,12 +2094,12 @@ def render_semantic_schema_dialog(document):
 
 
 def render_semantic_model(document):
-    """Render the editable first-stage semantic model for the built-in demo source."""
+    """Render the editable first-stage ontology for the built-in demo source."""
     model = normalize_semantic_model(document.get("semantic_model"))
     document["semantic_model"] = model
     cs = st.session_state.get("language") == "cs"
     display_model = localized_semantic_model(model, "cs" if cs else "en")
-    st.title("Semantický model" if cs else "Semantic model")
+    st.title("Ontologie" if cs else "Ontology")
     st.caption(
         "Editovatelný zdroj pravdy pro tabulky, vztahy, metriky a business pravidla. Analytický chat z něj odpovídá bez SQL."
         if cs else "Editable source of truth for tables, relationships, metrics, and business rules. Analytics chat answers from it without SQL."
@@ -2307,7 +2376,7 @@ with st.sidebar:
             st.session_state.saved_chat_menu_open = False
             st.rerun()
         if st.button(
-            "Semantický model" if st.session_state.get("language") == "cs" else "Semantic model",
+            "Ontologie" if st.session_state.get("language") == "cs" else "Ontology",
             key="sidebar-nav-semantic-model", icon=":material/account_tree:",
             type="primary" if st.session_state.get("workspace_view") == "semantic_model" else "secondary",
             use_container_width=True,

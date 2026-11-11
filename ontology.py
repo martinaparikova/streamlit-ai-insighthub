@@ -200,7 +200,7 @@ def answer_knowledge_question(question, model, language="cs"):
     if _matches(prompt, table_words) and not _matches(prompt, metric_words):
         tables = "; ".join(f"**{item['name']}** (`{item['technical_name']}`) – {item['description']}" for item in model["tables"])
         return {
-            "title": "Tabulky v semantickém modelu" if cs else "Tables in the semantic model",
+            "title": "Tabulky v ontologii" if cs else "Tables in the ontology",
             "content": f"Model obsahuje {len(model['tables'])} tabulky: {tables}" if cs else f"The model contains {len(model['tables'])} tables: {tables}",
         }
     if _matches(prompt, relation_words):

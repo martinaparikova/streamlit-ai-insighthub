@@ -90,11 +90,20 @@ class FrontendTests(unittest.TestCase):
         self.assertEqual(buttons["Zobrazit odpověď"], "primary")
         self.assertEqual(buttons["Vytvořit graf"], "secondary")
 
+    def test_chat_loading_indicator_is_hidden_until_a_question_is_submitted(self):
+        self.assertFalse(any("<div class='analytics-chat-loader" in item.value for item in self.app.markdown))
+        source = Path(__file__).with_name("app.py").read_text(encoding="utf-8")
+        self.assertIn("loader_column, form_column = st.columns([1, 16]", source)
+        self.assertIn("analytics-chat-loader--active", source)
+        self.assertIn("analytics-pie-spin", source)
+        self.assertIn("loader_slot.markdown(render_analytics_chat_loader()", source)
+        self.assertIn("render_chat_item(submitted_question", source)
+
     def test_data_sources_navigation_renders_read_only_connection_preview(self):
         sidebar_labels = [item.label for item in self.app.sidebar.button]
         self.assertEqual(
             sidebar_labels[:5],
-            ["Zdroje dat", "Semantický model", "Analytický chat", "Dashboardy", "Uložené chaty"],
+            ["Zdroje dat", "Ontologie", "Analytický chat", "Dashboardy", "Uložené chaty"],
         )
         active_button = next(item for item in self.app.sidebar.button if item.label == "Analytický chat")
         self.assertEqual(active_button.proto.type, "primary")
@@ -175,7 +184,7 @@ class FrontendTests(unittest.TestCase):
     def test_semantic_model_answers_table_question_without_sql(self):
         self.ask("Jaké tabulky jsou v modelu?")
 
-        self.assertTrue(any(item.value == "Tabulky v semantickém modelu" for item in self.app.subheader))
+        self.assertTrue(any(item.value == "Tabulky v ontologii" for item in self.app.subheader))
         self.assertTrue(any("`companies`" in item.value for item in self.app.markdown))
 
     def test_knowledge_chat_recovers_when_session_document_is_legacy(self):
@@ -193,19 +202,19 @@ class FrontendTests(unittest.TestCase):
         self.assert_no_errors()
         saved = json.loads(self.store.read_text(encoding="utf-8"))
         self.assertIn("semantic_model", saved)
-        self.assertTrue(any(item.value == "Tabulky v semantickém modelu" for item in self.app.subheader))
+        self.assertTrue(any(item.value == "Tabulky v ontologii" for item in self.app.subheader))
 
     def test_semantic_model_navigation_renders_editor(self):
-        next(item for item in self.app.button if item.label == "Semantický model").click().run()
+        next(item for item in self.app.button if item.label == "Ontologie").click().run()
 
         self.assert_no_errors()
-        self.assertTrue(any(item.value == "Semantický model" for item in self.app.title))
+        self.assertTrue(any(item.value == "Ontologie" for item in self.app.title))
         self.assertTrue(any(item.label == "Vytvořit AI draft (brzy)" for item in self.app.button))
         self.assertTrue(any(item.label == "Zobrazit schéma modelu" for item in self.app.button))
         self.assertEqual(len(self.app.metric), 4)
 
     def test_schema_dialog_renders_expandable_graph_and_relationship_editor(self):
-        next(item for item in self.app.button if item.label == "Semantický model").click().run()
+        next(item for item in self.app.button if item.label == "Ontologie").click().run()
         next(item for item in self.app.button if item.label == "Zobrazit schéma modelu").click().run()
 
         self.assert_no_errors()
@@ -224,7 +233,7 @@ class FrontendTests(unittest.TestCase):
 
     def test_english_schema_dialog_uses_english_default_labels(self):
         self.app.button(key="language-en").click().run()
-        next(item for item in self.app.button if item.label == "Semantic model").click().run()
+        next(item for item in self.app.button if item.label == "Ontology").click().run()
         next(item for item in self.app.button if item.label == "View model schema").click().run()
 
         self.assert_no_errors()
@@ -279,6 +288,12 @@ LIMIT 5""",
         self.ask("Show revenue by product, font Roboto.", button="Vytvořit graf")
         chart = json.loads(self.app.get("plotly_chart")[0].proto.spec)
         self.assertEqual(chart["layout"]["font"]["family"], "Roboto")
+
+    def test_explicit_line_chart_uses_line_trace_in_local_fallback(self):
+        self.ask("Show revenue by product as a line chart.", button="Vytvořit graf")
+        chart = json.loads(self.app.get("plotly_chart")[0].proto.spec)
+        self.assertEqual(chart["data"][0]["type"], "scatter")
+        self.assertEqual(chart["data"][0]["mode"], "lines+markers")
 
     def test_table_answer_can_choose_dashboard(self):
         with patch(
@@ -388,7 +403,7 @@ LIMIT 5""",
 
     def test_semantic_model_ai_draft_preview_is_english(self):
         self.app.button(key="language-en").click().run()
-        next(item for item in self.app.button if item.label == "Semantic model").click().run()
+        next(item for item in self.app.button if item.label == "Ontology").click().run()
 
         self.assert_no_errors()
         preview = next(item.value for item in self.app.markdown if "AI draft is available in phase 1" in item.value)
@@ -397,7 +412,7 @@ LIMIT 5""",
 
     def test_english_semantic_model_uses_english_default_metric_labels(self):
         self.app.button(key="language-en").click().run()
-        next(item for item in self.app.button if item.label == "Semantic model").click().run()
+        next(item for item in self.app.button if item.label == "Ontology").click().run()
 
         self.assert_no_errors()
         labels = [item.label for item in self.app.expander]
@@ -415,7 +430,7 @@ LIMIT 5""",
         self.ask("What tables are in the model?", button="Show answer", question_label="Your question")
 
         self.assert_no_errors()
-        self.assertTrue(any(item.value == "Tables in the semantic model" for item in self.app.subheader))
+        self.assertTrue(any(item.value == "Tables in the ontology" for item in self.app.subheader))
 
     def test_dashboard_can_be_created_from_dashboard_navigation(self):
         self.start_dashboard_creation()
