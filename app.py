@@ -51,6 +51,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_ace import st_ace
+from st_aggrid import AgGrid, DataReturnMode, GridOptionsBuilder, JsCode
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
@@ -384,18 +386,59 @@ def run_sql(sql):
     return connection.execute(query).df()
 
 
-def sql_card(sql, row_count=None):
+def available_data_tables():
+    """Return metadata for tables currently loaded into local DuckDB."""
+    connection = get_connection()
+    tables = []
+    for table_name in ("companies", "invoices", "opportunities"):
+        columns = connection.execute("DESCRIBE SELECT * FROM query_table(?)", [table_name]).fetchall()
+        row_count = connection.execute("SELECT COUNT(*) FROM query_table(?)", [table_name]).fetchone()[0]
+        tables.append({"name": table_name, "rows": int(row_count), "columns": [{"name": item[0], "type": item[1]} for item in columns]})
+    return tables
+
+
+def open_data_viewer(sql=None, table=None):
+    if sql:
+        st.session_state.data_viewer_sql = sql
+        st.session_state["data-viewer-sql"] = sql
+        st.session_state.data_viewer_sql_pending = True
+        st.session_state.data_viewer_result = None
+        st.session_state.data_viewer_error = None
+    if table:
+        st.session_state.data_viewer_selected_table = table
+    st.session_state.workspace_view = "data_viewer"
+    st.session_state.dashboard_menu_open = False
+    st.session_state.dashboard_create_open = False
+    st.session_state.saved_chat_menu_open = False
+
+
+def open_sql_trace_in_data_viewer(sql):
+    """Leave the dialog and open its exact query in the SQL Data viewer."""
+    open_data_viewer(sql=sql)
+    st.rerun(scope="app")
+
+
+def sql_card(sql, row_count=None, key=None):
     with st.expander(t("sql_trace")):
         st.code(sql, language="sql")
         if row_count is not None:
             st.caption(t("sql_rows", rows=row_count))
+        if st.button("Přejít do zobrazení dat" if st.session_state.get("language") == "cs" else "Go to data viewer", key=f"go-to-data-viewer-{key or 'sql-card'}", icon=":material/table_view:"):
+            open_data_viewer(sql=sql)
+            st.rerun()
 
 
 @st.dialog(t("sql_trace"), width="large")
 def render_sql_trace_dialog(sql, row_count):
-    """Show the executed read-only query without expanding the chat result."""
+    """Show the executed read-only query and offer its full exploration in Data viewer."""
     st.code(sql, language="sql")
     st.caption(t("sql_rows", rows=row_count))
+    with st.container(key="sql-trace-action"):
+        st.button(
+            "Přejít do zobrazení dat" if st.session_state.get("language") == "cs" else "Go to Data viewer",
+            key="sql-trace-go-to-data-viewer", icon=":material/table_view:", type="primary",
+            width="stretch", on_click=open_sql_trace_in_data_viewer, kwargs={"sql": sql},
+        )
 
 
 def parse_agent(text):
@@ -684,7 +727,7 @@ def render_card_content(spec, page, key_prefix, show_sql=True):
     else:
         st.plotly_chart(chart_figure(spec, data), width="stretch", key=f"{key_prefix}-chart-{spec['id']}")
     if show_sql:
-        sql_card(filtered_sql, len(data))
+        sql_card(filtered_sql, len(data), key=f"{key_prefix}-{spec['id']}")
 
 
 def render_dashboard_card(spec, page, document, index):
@@ -994,6 +1037,7 @@ def style_app():
             background: {PAPER}; color: var(--ink); font-family: 'Plus Jakarta Sans', sans-serif;
         }}
         .stApp :is(p, label, input, textarea, button) {{ font-family: 'Plus Jakarta Sans', sans-serif; }}
+        .stApp [data-testid='stButton'] button p, .stApp [data-testid='stFormSubmitButton'] button p {{ font-family: 'Plus Jakarta Sans', sans-serif !important; }}
         .block-container {{ max-width: 1180px; padding-top: 1rem; padding-bottom: 3rem; }}
         h1,h2,h3,h4 {{ color: var(--ink); font-family: 'Plus Jakarta Sans', sans-serif; letter-spacing: -.035em; }}
         h1 {{ font-size: clamp(1.85rem, 4vw, 2.4rem) !important; font-weight: 600 !important; }}
@@ -1181,6 +1225,17 @@ def style_app():
         [data-testid='stDownloadButton'] > button:hover {{ background: var(--rose); border-color: var(--accent); color: var(--accent); }}
         .stApp button[kind^='primary'] {{ background: var(--accent); border-color: var(--accent); color: white; }}
         .stApp button[kind^='primary']:hover {{ background: var(--accent-hover); border-color: var(--accent-hover); color: white; }}
+        .st-key-sql-trace-action [data-testid='stButton'] > button {{
+            min-height: 48px; background: #C2185B !important; border-color: #C2185B !important;
+            color: #FFFFFF !important; box-shadow: 0 7px 16px rgba(194, 24, 91, .25); font-weight: 700;
+        }}
+        .st-key-sql-trace-action [data-testid='stButton'] > button:hover {{
+            background: #A8144D !important; border-color: #A8144D !important;
+            box-shadow: 0 9px 20px rgba(194, 24, 91, .32);
+        }}
+        .st-key-sql-trace-action [data-testid='stButton'] > button :is(p, span, svg, [data-testid='stMarkdownContainer']) {{
+            color: #FFFFFF !important; fill: currentColor !important;
+        }}
         .stApp button:disabled {{ opacity: .45; cursor: not-allowed; }}
         [data-testid='stSidebar'] [data-testid='stButton'] > button p,
         [data-testid='stSidebar'] [data-testid='stFormSubmitButton'] > button p {{ color: inherit; }}
@@ -1700,7 +1755,14 @@ def render_chat_item(item, index):
             }
         else:
             spec = chart_spec_from_result(result)
-        st.subheader(result["title"])
+        previous_item = st.session_state.get("chat_history", [])[index - 1] if index else None
+        repeats_previous_question = (
+            previous_item
+            and previous_item.get("role") == "user"
+            and previous_item.get("content", "").strip().casefold() == result["title"].strip().casefold()
+        )
+        if not repeats_previous_question:
+            st.subheader(result["title"])
         if result["kind"] != "query":
             st.write(result["summary"])
         if result["kind"] == "metric":
@@ -1970,57 +2032,224 @@ def render_analytics_chat(document):
 
 
 def render_data_sources():
-    """Render a read-only preview of the planned source-connection workflow."""
+    """Show actual loaded simple sources and their DuckDB table metadata."""
     cs = st.session_state.get("language") == "cs"
-    source_groups = [
-        ("data-source-group-microsoft", ":material/apps:", "data_sources_group_microsoft", "data_sources_group_microsoft_description", [
-            ("Microsoft Fabric", "OneLake, Lakehouse, Warehouse a Power BI datové toky." if cs else "OneLake, Lakehouse, Warehouse, and Power BI dataflows."),
-            ("Microsoft SQL Server", "SQL Server a Azure SQL Database v jednom přehledu." if cs else "SQL Server and Azure SQL Database in one view."),
-        ]),
-        ("data-source-group-databases", ":material/storage:", "data_sources_group_databases", "data_sources_group_databases_description", [
-            ("PostgreSQL", "Produkční databáze, datový sklad nebo aplikační data." if cs else "Production databases, data warehouses, or application data."),
-            ("MySQL / MariaDB", "Operační data z aplikací, e-shopů a interních systémů." if cs else "Operational data from apps, e-commerce, and internal systems."),
-        ]),
-        ("data-source-group-cloud", ":material/cloud:", "data_sources_group_cloud", "data_sources_group_cloud_description", [
-            ("Snowflake", "Cloudový datový sklad pro sdílenou analytiku." if cs else "A cloud data warehouse for shared analytics."),
-            ("Databricks", "Lakehouse tabulky a připravené datové produkty." if cs else "Lakehouse tables and prepared data products."),
-        ]),
-        ("data-source-group-files", ":material/upload_file:", "data_sources_group_files", "data_sources_group_files_description", [
-            ("CSV", "Tabulky exportované z účetnictví, CRM nebo e-shopu." if cs else "Tables exported from accounting, CRM, or e-commerce."),
-            ("Excel", "Soubory .xlsx a .xls včetně vybraných listů." if cs else ".xlsx and .xls workbooks, including selected sheets."),
-            ("Text files" if not cs else "Textové soubory", "TXT a datové výstupy s vlastním oddělovačem." if cs else "TXT files and delimited data exports."),
-            ("JSON", "JSON exporty z aplikací a API." if cs else "JSON exports from applications and APIs."),
-        ]),
-    ]
-    st.markdown(
-        f"<div class='data-sources-heading'><p class='data-sources-heading__eyebrow'>{escape(t('data_sources_eyebrow'))}</p>"
-        f"<h1>{escape(t('data_sources_title'))}</h1><p>{escape(t('data_sources_intro'))}</p></div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f"<section class='data-sources-notice'><span class='data-sources-notice__mark'>!</span><div>"
-        f"<strong>{escape(t('data_sources_notice_title'))}</strong><p>{escape(t('data_sources_notice'))}</p></div></section>",
-        unsafe_allow_html=True,
-    )
+    title = "Zdroje dat" if cs else "Data sources"
+    viewer = "Datový prohlížeč" if cs else "Data viewer"
+    open_label = "Otevřít v datovém prohlížeči" if cs else "Open in data viewer"
+    st.markdown("<p class='eyebrow'>AKTUÁLNÍ DATA</p>" if cs else "<p class='eyebrow'>CURRENT DATA</p>", unsafe_allow_html=True)
+    header, action = st.columns([4, 1], vertical_alignment="center")
+    with header:
+        st.title(title)
+        st.markdown("Projděte si nahrané zdroje, tabulky a jejich sloupce." if cs else "Review loaded sources, tables, and their columns.")
+    with action:
+        if st.button(viewer, key="data-sources-open-viewer", type="primary", icon=":material/table_view:", use_container_width=True):
+            open_data_viewer()
+            st.rerun()
+    st.info("**Lokální zdroje pouze pro čtení**\n\nUkázková ERP a CRM data jsou načtena do lokálního DuckDB." if cs else "**Local read-only sources**\n\nThe ERP and CRM sample data is loaded into local DuckDB.")
+    st.subheader("Jednoduché zdroje" if cs else "Simple sources")
+    metadata = {item["name"]: item for item in available_data_tables()}
+    for source_name, names in (("ERP sample data", ("companies", "invoices")), ("CRM sample data", ("opportunities",))):
+        with st.container(border=True):
+            st.markdown(f"#### {source_name}")
+            st.caption(("Jednoduchý zdroj · Pouze pro čtení" if cs else "Simple source · Read-only") + f" · {len(names)} {'tabulky' if cs else 'tables'} · CSV")
+            for name in names:
+                table = metadata[name]
+                with st.expander(f"`{name}` · {table['rows']} {'řádků' if cs else 'rows'}", icon=":material/table_chart:"):
+                    st.dataframe(table["columns"], hide_index=True, use_container_width=True)
+                    if st.button(open_label, key=f"source-table-viewer-{name}", icon=":material/open_in_new:"):
+                        open_data_viewer(table=name)
+                        st.rerun()
 
-    def source_card(name, description):
-        return (
-            "<article class='data-source-card'><div class='data-source-card__top'>"
-            f"<span class='data-source-card__status'>{escape(t('data_sources_coming_soon'))}</span>"
-            f"</div><h3>{escape(name)}</h3><p>{escape(description)}</p></article>"
+
+def render_data_viewer():
+    cs = st.session_state.get("language") == "cs"
+    tables = available_data_tables()
+    by_name = {item["name"]: item for item in tables}
+    default_name = st.session_state.get("data_viewer_selected_table", tables[0]["name"])
+    if default_name not in by_name:
+        default_name = tables[0]["name"]
+    heading, action = st.columns([4, 1], vertical_alignment="center")
+    with heading:
+        st.markdown("<p class='eyebrow'>AKTUÁLNÍ DATA</p>" if cs else "<p class='eyebrow'>CURRENT DATA</p>", unsafe_allow_html=True)
+        st.title("Datový prohlížeč" if cs else "Data viewer")
+        st.markdown("Prohlédněte tabulku nebo spusťte vlastní SQL pouze pro čtení." if cs else "Browse a table or run your own read-only SQL.")
+    with action:
+        if st.button("Zdroje dat" if cs else "Data sources", key="data-viewer-open-sources", icon=":material/database:", width="stretch"):
+            st.session_state.workspace_view = "data_sources"
+            st.rerun()
+    preview_label, sql_label = (("Náhled tabulky", "SQL dotaz") if cs else ("Table preview", "SQL query"))
+    if st.session_state.pop("data_viewer_sql_pending", False):
+        st.session_state["data-viewer-mode"] = sql_label
+    mode = st.radio("Režim" if cs else "Mode", [preview_label, sql_label], horizontal=True, key="data-viewer-mode")
+    if mode == preview_label:
+        name = st.selectbox("Tabulka" if cs else "Table", list(by_name), index=list(by_name).index(default_name), key="data-viewer-table")
+        st.session_state.data_viewer_selected_table = name
+        table = by_name[name]
+        names = [item["name"] for item in table["columns"]]
+        preview_sql = f"SELECT * FROM query_table('{name}') LIMIT 500"
+        preview_data = get_connection().execute(preview_sql).df()
+        grid_builder = GridOptionsBuilder.from_dataframe(preview_data)
+        grid_builder.configure_default_column(
+            filter="agSetColumnFilter", sortable=True, resizable=True,
+            menuTabs=["filterMenuTab", "generalMenuTab"],
+            filterParams={"suppressMiniFilter": False},
         )
-
-    st.markdown(f"<p class='data-sources-section-title'>{escape(t('data_sources_groups'))}</p>", unsafe_allow_html=True)
-    for _group_key, group_icon, title_key, description_key, sources in source_groups:
-        label = f"{t(title_key)} · {t('data_sources_group_count', count=len(sources))}"
-        with st.expander(label, expanded=False, icon=group_icon):
-            st.caption(t(description_key))
-            per_row = 4 if len(sources) == 4 else 3
-            for start in range(0, len(sources), per_row):
-                columns = st.columns(per_row, gap="large")
-                for column, (name, description) in zip(columns, sources[start:start + per_row]):
-                    with column:
-                        st.markdown(source_card(name, description), unsafe_allow_html=True)
+        statistics_labels = json.dumps({
+            "title": "Statistiky" if cs else "Statistics",
+            "rows": "Řádky" if cs else "Rows",
+            "filled": "Vyplněno" if cs else "Filled",
+            "empty": "Prázdné" if cs else "Empty",
+            "unique": "Unikátní" if cs else "Unique",
+            "distribution": "Rozložení hodnot" if cs else "Value distribution",
+            "range": "Rozsah" if cs else "Range",
+        })
+        column_menu_items = JsCode("""
+            function(params) {
+                const labels = __STATISTICS_LABELS__;
+                const field = params.column.getColDef().field;
+                const values = [];
+                params.api.forEachNodeAfterFilter(function(node) {
+                    if (node.data) values.push(node.data[field]);
+                });
+                const present = values.filter(function(value) {
+                    return value !== null && value !== undefined && value !== "";
+                });
+                const textValues = present.map(function(value) { return String(value); });
+                const numericValues = present.map(Number).filter(function(value) { return Number.isFinite(value); });
+                const summary = [
+                    { name: labels.title + ": " + field, disabled: true, cssClasses: ["biizy-stats-title"] },
+                    { name: labels.rows + ": " + values.length, disabled: true },
+                    { name: labels.filled + ": " + present.length + " · " + labels.empty + ": " + (values.length - present.length), disabled: true },
+                    { name: labels.unique + ": " + new Set(textValues).size, disabled: true },
+                    "separator",
+                    { name: labels.distribution, disabled: true, cssClasses: ["biizy-stats-title"] },
+                ];
+                let bars = [];
+                if (numericValues.length > 1) {
+                    const minimum = Math.min.apply(null, numericValues);
+                    const maximum = Math.max.apply(null, numericValues);
+                    const binCount = Math.min(8, Math.max(4, Math.ceil(Math.sqrt(numericValues.length))));
+                    const width = maximum === minimum ? 1 : (maximum - minimum) / binCount;
+                    const bins = Array.from({ length: binCount }, function(_, index) { return { start: minimum + index * width, count: 0 }; });
+                    numericValues.forEach(function(value) {
+                        const index = Math.min(binCount - 1, Math.floor((value - minimum) / width));
+                        bins[index].count += 1;
+                    });
+                    const largest = Math.max.apply(null, bins.map(function(bin) { return bin.count; })) || 1;
+                    bars = [{ name: labels.range + ": " + minimum + " – " + maximum, disabled: true }].concat(bins.map(function(bin) {
+                        const blocks = "▇".repeat(Math.max(1, Math.round((bin.count / largest) * 12)));
+                        return { name: bin.start.toLocaleString(undefined, { maximumFractionDigits: 2 }) + "  " + blocks + " " + bin.count, disabled: true, cssClasses: ["biizy-stats-bar"] };
+                    }));
+                } else {
+                    const counts = {};
+                    textValues.forEach(function(value) { counts[value] = (counts[value] || 0) + 1; });
+                    const topValues = Object.entries(counts).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 6);
+                    const largest = Math.max.apply(null, topValues.map(function(entry) { return entry[1]; })) || 1;
+                    bars = topValues.map(function(entry) {
+                        const blocks = "▇".repeat(Math.max(1, Math.round((entry[1] / largest) * 12)));
+                        return { name: entry[0] + "  " + blocks + " " + entry[1], disabled: true, cssClasses: ["biizy-stats-bar"] };
+                    });
+                }
+                return params.defaultItems.concat(["separator", {
+                    name: labels.title,
+                    subMenu: summary.concat(bars),
+                    cssClasses: ["biizy-stats-menu-entry"]
+                }]);
+            }
+        """.replace("__STATISTICS_LABELS__", statistics_labels))
+        for column_name in names:
+            grid_builder.configure_column(
+                column_name, filter="agSetColumnFilter", sortable=True, resizable=True,
+                menuTabs=["filterMenuTab", "generalMenuTab"],
+                filterParams={"suppressMiniFilter": False},
+                headerClass="biizy-left-header", cellStyle={"textAlign": "left"},
+                mainMenuItems=column_menu_items,
+            )
+        grid_builder.configure_grid_options(
+            suppressMenuHide=True,
+            suppressFieldDotNotation=True,
+            rowSelection={"mode": "multiRow", "checkboxes": False, "headerCheckbox": False},
+            animateRows=False,
+        )
+        st.caption(
+            "V menu tří teček u sloupce zvolte Filter pro filtrování; najeďte na Statistiky pro přehled a histogram hodnot." if cs
+            else "Open a column's three-dot menu: choose Filter to filter, or hover Statistics for the value summary and histogram."
+        )
+        stats = st.columns(4)
+        sample_stat = stats[0].empty()
+        columns_stat = stats[1].empty()
+        filters_stat = stats[2].empty()
+        sorting_stat = stats[3].empty()
+        sample_stat.metric("Řádky" if cs else "Rows", len(preview_data))
+        columns_stat.metric("Sloupce" if cs else "Columns", len(names))
+        filters_stat.metric("Aktivní filtry" if cs else "Active filters", 0)
+        sorting_stat.metric("Řazení" if cs else "Sorting", "Ne" if cs else "No")
+        grid_response = AgGrid(
+            preview_data,
+            gridOptions=grid_builder.build(),
+            height=440,
+            theme="streamlit",
+            key=f"data-viewer-grid-{name}",
+            enable_enterprise_modules=True,
+            update_on=["filterChanged", "sortChanged"],
+            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+            show_toolbar=False,
+            allow_unsafe_jscode=True,
+            custom_css={
+                ".ag-root-wrapper": {"--ag-font-family": "Inter, Arial, Helvetica, sans-serif", "border": "1px solid #DCE4DF", "border-radius": "10px"},
+                ".ag-root, .ag-root *, .ag-menu, .ag-menu *, .ag-popup, .ag-popup *": {"font-family": "Inter, Arial, Helvetica, sans-serif !important"},
+                ".ag-header": {"font-weight": "700", "color": "#0B3B2E"},
+                ".biizy-left-header .ag-header-cell-label": {"justify-content": "flex-start !important", "text-align": "left !important"},
+                ".biizy-left-header .ag-header-cell-text": {"text-align": "left !important"},
+                ".biizy-stats-menu-entry": {"font-weight": "700"},
+                ".biizy-stats-title": {"font-weight": "700", "color": "#0B3B2E", "background": "#F1F6F3"},
+                ".biizy-stats-bar": {"font-family": "ui-monospace, SFMono-Regular, Menlo, monospace !important", "font-size": "11px", "letter-spacing": "0", "white-space": "pre"},
+            },
+        )
+        filtered_data = grid_response.data if isinstance(grid_response.data, pd.DataFrame) else preview_data
+        active_filters = len((grid_response.grid_state or {}).get("filter", {}).get("filterModel", {}))
+        sorted_grid = bool((grid_response.grid_state or {}).get("sort"))
+        sample_stat.metric("Řádky" if cs else "Rows", len(filtered_data))
+        filters_stat.metric("Aktivní filtry" if cs else "Active filters", active_filters)
+        sorting_stat.metric("Řazení" if cs else "Sorting", ("Ano" if cs else "Yes") if sorted_grid else ("Ne" if cs else "No"))
+        with st.expander(t("sql_trace")):
+            st.code(preview_sql, language="sql")
+    else:
+        st.markdown(f"#### {sql_label}")
+        current_sql = st.session_state.get("data-viewer-sql", "")
+        edited_sql = st_ace(
+            value=current_sql,
+            placeholder="SELECT * FROM invoices LIMIT 100",
+            height=180,
+            language="sql",
+            theme="chrome",
+            keybinding="vscode",
+            font_size=14,
+            tab_size=2,
+            wrap=True,
+            show_print_margin=False,
+            auto_update=True,
+            key="data-viewer-sql-editor",
+        )
+        if edited_sql is not None:
+            st.session_state["data-viewer-sql"] = edited_sql
+        sql = st.session_state.get("data-viewer-sql", "")
+        run = st.button("Spustit SQL" if cs else "Run SQL", type="primary", key="run-data-viewer-sql", icon=":material/play_arrow:")
+        if run:
+            try:
+                bounded = build_bounded_select_sql(sql, get_connection())
+                st.session_state.data_viewer_sql = bounded
+                st.session_state.data_viewer_result = run_sql(bounded)
+                st.session_state.data_viewer_error = None
+            except Exception as exception:
+                st.session_state.data_viewer_error = str(exception)
+                st.session_state.data_viewer_result = None
+        if st.session_state.get("data_viewer_error"):
+            st.error(("SQL se nepodařilo bezpečně spustit: " if cs else "SQL could not be safely executed: ") + st.session_state.data_viewer_error)
+        if st.session_state.get("data_viewer_result") is not None:
+            result = st.session_state.data_viewer_result
+            st.dataframe(result, hide_index=True, use_container_width=True)
 
 
 def _semantic_status_options():
@@ -2376,6 +2605,17 @@ with st.sidebar:
             st.session_state.saved_chat_menu_open = False
             st.rerun()
         if st.button(
+            "Datový prohlížeč" if st.session_state.get("language") == "cs" else "Data viewer",
+            key="sidebar-nav-data-viewer", icon=":material/table_view:",
+            type="primary" if st.session_state.get("workspace_view") == "data_viewer" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state.workspace_view = "data_viewer"
+            st.session_state.dashboard_menu_open = False
+            st.session_state.dashboard_create_open = False
+            st.session_state.saved_chat_menu_open = False
+            st.rerun()
+        if st.button(
             "Ontologie" if st.session_state.get("language") == "cs" else "Ontology",
             key="sidebar-nav-semantic-model", icon=":material/account_tree:",
             type="primary" if st.session_state.get("workspace_view") == "semantic_model" else "secondary",
@@ -2493,6 +2733,8 @@ render_demo_project_notice()
 
 if st.session_state.get("workspace_view") == "data_sources":
     render_data_sources()
+elif st.session_state.get("workspace_view") == "data_viewer":
+    render_data_viewer()
 elif st.session_state.get("workspace_view") == "semantic_model":
     render_semantic_model(document)
 elif st.session_state.get("workspace_view") == "dashboard":

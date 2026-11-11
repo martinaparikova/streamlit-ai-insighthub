@@ -99,11 +99,11 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("loader_slot.markdown(render_analytics_chat_loader()", source)
         self.assertIn("render_chat_item(submitted_question", source)
 
-    def test_data_sources_navigation_renders_read_only_connection_preview(self):
+    def test_data_sources_navigation_renders_loaded_simple_sources(self):
         sidebar_labels = [item.label for item in self.app.sidebar.button]
         self.assertEqual(
-            sidebar_labels[:5],
-            ["Zdroje dat", "Ontologie", "Analytický chat", "Dashboardy", "Uložené chaty"],
+            sidebar_labels[:6],
+            ["Zdroje dat", "Datový prohlížeč", "Ontologie", "Analytický chat", "Dashboardy", "Uložené chaty"],
         )
         active_button = next(item for item in self.app.sidebar.button if item.label == "Analytický chat")
         self.assertEqual(active_button.proto.type, "primary")
@@ -113,34 +113,49 @@ class FrontendTests(unittest.TestCase):
         active_button = next(item for item in self.app.sidebar.button if item.label == "Zdroje dat")
         self.assertEqual(active_button.proto.type, "primary")
         page = "\n".join(item.value for item in self.app.markdown)
-        self.assertIn("Připojení zdrojů dat zatím není aktivní", page)
-        self.assertIn("nahranými zkušebními ERP a CRM daty", page)
-        self.assertEqual(
-            [item.label for item in self.app.expander[:4]],
-            [
-                "Microsoft ekosystém · 2 zdroje",
-                "Relační databáze · 2 zdroje",
-                "Cloudové datové platformy · 2 zdroje",
-                "Soubory z počítače · 4 zdroje",
-            ],
-        )
-        for source_name in ("Microsoft Fabric", "PostgreSQL", "Microsoft SQL Server", "MySQL / MariaDB", "Snowflake", "Databricks", "CSV", "Excel", "Textové soubory", "JSON"):
+        self.assertTrue(any("Lokální zdroje pouze pro čtení" in item.value for item in self.app.info))
+        self.assertIn("Jednoduché zdroje", [item.value for item in self.app.subheader])
+        for source_name in ("ERP sample data", "CRM sample data"):
             self.assertIn(source_name, page)
-        self.assertNotIn("Příští krok", page)
-        self.assertNotIn("Next step", page)
+        self.assertTrue(any("companies" in item.label for item in self.app.expander))
+        self.assertTrue(any("invoices" in item.label for item in self.app.expander))
+        self.assertTrue(any("opportunities" in item.label for item in self.app.expander))
+        self.assertTrue(any(item.label == "Datový prohlížeč" for item in self.app.button))
         self.assertEqual(len(self.app.file_uploader), 0)
+
+    def test_sidebar_opens_data_viewer_directly_below_data_sources(self):
+        self.app.button(key="sidebar-nav-data-viewer").click().run()
+
+        self.assert_no_errors()
+        self.assertEqual(self.app.session_state["workspace_view"], "data_viewer")
+        active_button = self.app.sidebar.button(key="sidebar-nav-data-viewer")
+        self.assertEqual(active_button.proto.type, "primary")
+        self.assertTrue(any(item.label == "Režim" for item in self.app.radio))
 
     def test_data_sources_use_english_copy_when_english_is_selected(self):
         self.app.button(key="language-en").click().run()
         next(item for item in self.app.button if item.label == "Data sources").click().run()
         self.assert_no_errors()
         page = "\n".join(item.value for item in self.app.markdown)
-        self.assertIn("Data-source connections are not active yet", page)
-        self.assertIn("Files from your computer · 4 sources", [item.label for item in self.app.expander])
-        self.assertIn("Text files", page)
+        self.assertTrue(any("Local read-only sources" in item.value for item in self.app.info))
+        self.assertIn("Simple sources", [item.value for item in self.app.subheader])
+        self.assertIn("ERP sample data", page)
+        self.assertTrue(any(item.label == "Data viewer" for item in self.app.button))
         self.assertNotIn("Textové soubory", page)
-        self.assertNotIn("Příští krok", page)
-        self.assertNotIn("Next step", page)
+
+    def test_data_sources_open_table_in_data_viewer(self):
+        next(item for item in self.app.button if item.label == "Zdroje dat").click().run()
+        next(item for item in self.app.button if item.label == "Otevřít v datovém prohlížeči").click().run()
+
+        self.assert_no_errors()
+        self.assertEqual(self.app.session_state["workspace_view"], "data_viewer")
+        self.assertEqual(self.app.session_state["data_viewer_selected_table"], "companies")
+        self.assertFalse(any(item.label == "Viditelné sloupce" for item in self.app.multiselect))
+        self.assertFalse(any(item.key.startswith("data-viewer-column-filter-") for item in self.app.text_input))
+        self.assertFalse(any(item.label == "Řadit podle" for item in self.app.selectbox))
+        self.assertTrue(any(item.label == "Řádky" for item in self.app.metric))
+        self.assertTrue(any(item.label == "Aktivní filtry" for item in self.app.metric))
+        self.assertFalse(any(item.label == "Statistiky sloupců" for item in self.app.expander))
 
     def test_work_in_progress_notice_is_visible_by_default_and_can_be_hidden(self):
         self.assert_no_errors()
@@ -348,6 +363,65 @@ LIMIT 5""",
         self.assertEqual(self.app.metric[0].value, "39")
         self.assertFalse(any("INSIGHT HUB" in item.value for item in self.app.caption))
         self.assertFalse(any("Výsledek bezpečně" in item.value for item in self.app.markdown))
+
+    def test_chat_answer_does_not_repeat_the_preceding_question_and_has_one_sql_trace_action(self):
+        question = "Kolik faktur je po splatnosti?"
+        self.app.session_state["chat_history"] = [
+            {"role": "user", "content": question},
+            {
+                "role": "assistant", "mode": "answer",
+                "result": {
+                    "kind": "query", "title": question, "sql": "SELECT 39 AS count",
+                    "summary": "Výsledek bezpečně spuštěného SQL dotazu pouze pro čtení.",
+                },
+            },
+        ]
+        self.app.run()
+
+        self.assert_no_errors()
+        self.assertFalse(any(item.value == question for item in self.app.subheader))
+        self.assertEqual(len([item for item in self.app.button if item.label == "SQL trace"]), 1)
+        self.assertFalse(any(item.label == "SQL trace" for item in self.app.expander))
+
+    def test_sql_trace_dialog_opens_data_viewer_with_the_answer_sql(self):
+        sql = "SELECT 39 AS count"
+        self.app.session_state["chat_history"] = [{
+            "role": "assistant", "mode": "answer",
+            "result": {
+                "kind": "query", "title": "Počet faktur", "sql": sql,
+                "summary": "Výsledek bezpečně spuštěného SQL dotazu pouze pro čtení.",
+            },
+        }]
+        self.app.run()
+
+        next(item for item in self.app.button if item.label == "SQL trace").click().run()
+        self.assert_no_errors()
+        trace_action = self.app.button(key="sql-trace-go-to-data-viewer")
+        self.assertEqual(trace_action.proto.type, "primary")
+        trace_action.click().run()
+
+        self.assert_no_errors()
+        self.assertEqual(self.app.session_state["workspace_view"], "data_viewer")
+        self.assertEqual(self.app.session_state["data_viewer_sql"], sql)
+        self.assertEqual(self.app.session_state["data-viewer-sql"], sql)
+        self.assertEqual(len(self.app.text_area), 0)
+        self.assertEqual(len(self.app.dataframe), 0)
+
+    def test_data_viewer_runs_only_the_sql_typed_by_the_user(self):
+        self.app.button(key="sidebar-nav-data-viewer").click().run()
+        self.app.session_state["data-viewer-mode"] = "SQL dotaz"
+        self.app.run()
+
+        sql = "SELECT COUNT(*) AS invoice_count FROM invoices"
+        self.app.session_state["data-viewer-sql"] = sql
+        self.app.run()
+        self.app.button(key="run-data-viewer-sql").click().run()
+
+        self.assert_no_errors()
+        self.assertEqual(list(self.app.session_state["data_viewer_result"].columns), ["invoice_count"])
+        self.assertGreater(int(self.app.session_state["data_viewer_result"].iloc[0, 0]), 0)
+        self.assertFalse(any(item.label == "SQL trace" for item in self.app.expander))
+        self.assertIn(sql, self.app.session_state["data_viewer_sql"])
 
     def test_user_question_omits_metadata_label(self):
         self.ask("Kolik faktur je po splatnosti?")
